@@ -30,15 +30,26 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-HARNESSES = ("pi", "codex", "claude")
-HARNESS_LABELS = {"pi": "Pi", "codex": "Codex", "claude": "Claude Code"}
+HARNESSES = ("pi", "codex", "claude", "agy")
+HARNESS_LABELS = {"pi": "Pi", "codex": "Codex", "claude": "Claude Code", "agy": "Antigravity"}
+HARNESS_PROCESS_NAMES = {
+    "pi": {"pi"},
+    "codex": {"codex"},
+    "claude": {"claude", "claude-code"},
+    "agy": {"agy", "antigravity"},
+}
+ALL_HARNESS_PROCESS_NAMES = {name for names in HARNESS_PROCESS_NAMES.values() for name in names}
 CONFIG_TOP_KEYS = {"max_active_workers", "notify_after_minutes", "workers", "roles"}
 WORKER_KEYS = {"harness", "model", "provider", "effort", "args", "description"}
 WORKER_NAME_RE = re.compile(r"[a-z][a-z0-9-]{0,15}")
 TASK_ID_RE = re.compile(r"t-[0-9a-f]{6}")
 MISSING_PANE_CODES = {"pane_not_found", "tab_not_found", "workspace_not_found"}
 # Session IDs a controller harness exports to its tool commands.
-CONTROLLER_SESSION_ENV = {"codex": "CODEX_THREAD_ID", "claude": "CLAUDE_CODE_SESSION_ID"}
+CONTROLLER_SESSION_ENV = {
+    "codex": "CODEX_THREAD_ID",
+    "claude": "CLAUDE_CODE_SESSION_ID",
+    "agy": "ANTIGRAVITY_CONVERSATION_ID",
+}
 HERDR_CONTEXT_ENV = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_SOCKET_PATH")
 REX_CONTEXT_ENV = ("REX_SESSION", "REX_BLOCK")
 
@@ -677,7 +688,7 @@ def launch_args(worker, directory):
         if effort:
             args += ["-c", f'model_reasoning_effort="{effort}"']
         args += ["--add-dir", str(directory)]
-    else:  # claude
+    else:  # claude, agy
         args += ["--model", model]
         if effort:
             args += ["--effort", effort]
@@ -754,6 +765,10 @@ def pane_owning_process(ancestors):
     return None
 
 
+def expected_process_names(harnesses):
+    return {name for harness in harnesses for name in HARNESS_PROCESS_NAMES.get(harness, {harness})}
+
+
 def controller_process_ancestor(ancestors):
     try:
         listing = subprocess.run(["ps", "-A", "-o", "pid=,comm="], capture_output=True,
@@ -761,7 +776,7 @@ def controller_process_ancestor(ancestors):
     except (OSError, subprocess.SubprocessError):
         return True
     return any(len(fields := line.split()) == 2 and fields[0].isdigit()
-               and int(fields[0]) in ancestors and Path(fields[1]).name in HARNESSES
+               and int(fields[0]) in ancestors and Path(fields[1]).name in ALL_HARNESS_PROCESS_NAMES
                for line in listing.splitlines())
 
 
@@ -777,7 +792,7 @@ def caller_verification(pane, info, method, text):
         "shell_pid": info.get("shell_pid"), "method": method,
         "controller_processes": [{"pid": p["pid"], "name": p["name"]}
                                  for p in info.get("foreground_processes") or []
-                                 if p.get("name") in HARNESSES and isinstance(p.get("pid"), int)],
+                                 if p.get("name") in ALL_HARNESS_PROCESS_NAMES and isinstance(p.get("pid"), int)],
         "screen_sha256": hashlib.sha256(text.encode()).hexdigest(), "verified_at": iso_now(),
     })
 
@@ -826,15 +841,19 @@ def require_caller_context(claimed=None, caller_text=None):
              f"Confirm the controller and pass --caller-pane <pane-id> --caller-text <unique-text>. {guidance}")
 
     expected = controllers or list(HARNESSES)
+    expected_names = expected_process_names(expected)
     names = {p.get("name") for p in info.get("foreground_processes") or [] if isinstance(p, dict)}
-    if not names.intersection(expected):
+    if not names.intersection(expected_names):
         fail("caller_context_invalid",
              f"--caller-pane {pane_id!r} is not running {' or '.join(expected)} in its foreground "
              f"(found: {', '.join(sorted(n for n in names if n)) or 'nothing'}). {guidance}")
     session = pane.get("agent_session") if isinstance(pane.get("agent_session"), dict) else {}
     for harness in controllers:
         own = os.environ[CONTROLLER_SESSION_ENV[harness]]
-        if session.get("agent") == harness and session.get("value") and session["value"] != own:
+        session_agents = HARNESS_PROCESS_NAMES.get(harness, {harness}) | {harness}
+        if harness == "agy":
+            session_agents |= {"antigravity-cli"}
+        if session.get("agent") in session_agents and session.get("value") and session["value"] != own:
             fail("caller_context_invalid",
                  f"--caller-pane {pane_id!r} reports {harness} session {session['value']!r}, "
                  f"not this controller's {own!r}. {guidance}")
@@ -843,7 +862,7 @@ def require_caller_context(claimed=None, caller_text=None):
              "Agent-controller dispatch requires --caller-text with at least 16 characters unique to this "
              "conversation's visible screen, alongside --caller-pane. Session IDs alone are insufficient.")
     foreground = info.get("foreground_processes") or []
-    if not any(p.get("name") in expected and p.get("cwd")
+    if not any(p.get("name") in expected_names and p.get("cwd")
                and Path(p["cwd"]).resolve() == Path.cwd().resolve() for p in foreground):
         fail("caller_context_invalid", "Controller foreground cwd does not match this conversation's cwd. " + guidance)
     needle = " ".join(caller_text.split())
@@ -852,7 +871,7 @@ def require_caller_context(claimed=None, caller_text=None):
     for candidate in herdr_path(herdr("pane", "list", timeout=30), "result", "panes"):
         candidate_id = candidate["pane_id"]
         candidate_info = pane_process_info(candidate_id)
-        if not any(p.get("name") in expected for p in candidate_info.get("foreground_processes") or []):
+        if not any(p.get("name") in expected_names for p in candidate_info.get("foreground_processes") or []):
             continue
         text = visible_text(candidate_id)
         if needle in " ".join(text.split()):
@@ -899,7 +918,8 @@ def core_caller_context(claimed=None, caller_text=None):
 
 def rex_foreground_harness(process, expected):
     foreground = process.get("foreground") or {}
-    return any(Path(foreground.get(key) or "").name in expected
+    names = expected_process_names(expected)
+    return any(Path(foreground.get(key) or "").name in names
                for key in ("name", "argv0", "invoked_path"))
 
 
@@ -2441,7 +2461,7 @@ def cli():
     if sys.argv[1:2] == ["--exec-rex-worker"]:
         # The Rex server can inherit another controller's multiplexer and harness environment.
         keep = {key: value for key, value in os.environ.items()
-                if not key.startswith(("HERDR", "HC_"))
+                if not key.startswith(("HERDR", "HC_", "ANTIGRAVITY_"))
                 and key not in (*CONTROLLER_SESSION_ENV.values(), "PI_SESSION_ID", "CLAUDECODE")}
         os.execve(sys.argv[2], sys.argv[2:], keep)
     main()

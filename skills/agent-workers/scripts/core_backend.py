@@ -245,7 +245,8 @@ def close(binding):
 
 if __name__ == "__main__" and sys.argv[1:2] == ["--exec"]:
     for key in list(os.environ):
-        if key.startswith("HERDR") or key in ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID", "CLAUDECODE"):
+        if (key.startswith(("HERDR", "ANTIGRAVITY_"))
+                or key in ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID", "CLAUDECODE")):
             os.environ.pop(key, None)
     os.environ["HERDR_ENV"] = "0"
     os.execvpe(sys.argv[2], sys.argv[2:], os.environ)

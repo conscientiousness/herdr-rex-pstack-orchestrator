@@ -104,7 +104,7 @@ class Run:
         self.root = Path(tempfile.mkdtemp(prefix="core-backend-", dir=args.output))
         self.runtime = Path(tempfile.mkdtemp(prefix="hce-", dir="/tmp"))
         self.env = {k: v for k, v in os.environ.items()
-                    if not k.startswith(("HERDR", "HC_"))}
+                    if not k.startswith(("HERDR", "HC_", "REX_", "ANTIGRAVITY_"))}
         self.env.update(HC_SESSION="e2e-" + uuid.uuid4().hex[:10],
                         XDG_CONFIG_HOME=str(self.root / "config"),
                         XDG_STATE_HOME=str(self.root / "state"),

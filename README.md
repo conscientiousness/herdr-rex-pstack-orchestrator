@@ -12,8 +12,8 @@
 
 Give your coding agent a team of workers in [Herdr](https://herdr.dev) or
 [Rex](https://www.superlogical.com/rex/docs/automate/cli). One agent coordinates
-the task, delegates investigation or implementation to Pi, Codex CLI, or Claude
-Code workers, and verifies their results.
+the task, delegates investigation or implementation to Pi, Codex CLI, Claude
+Code, or Antigravity CLI (`agy`) workers, and verifies their results.
 
 Follow tasks in the **Workers** tab while your controller stays in focus. Add
 the optional **pstack** bundle for workflows such as independent review and
@@ -31,7 +31,7 @@ multi-step implementation.
 
 - Python 3.11 or later.
 - Node.js 22.20 or later and npm for the installer.
-- Install and sign in to each agent CLI you want to use (`pi`, `codex`, or `claude`).
+- Install and sign in to each agent CLI you want to use (`pi`, `codex`, `claude`, or `agy`).
 - For Rex, run a local Unix-socket Rex server and install the `rex` CLI.
 - For Herdr, use [herdr-core](https://github.com/herdrdev/herdr-core) or Herdr
   0.9.3 or later. For Pi on Herdr without core, run `herdr integration install pi`.

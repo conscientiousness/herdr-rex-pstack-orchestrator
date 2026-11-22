@@ -45,7 +45,11 @@ import uuid
 
 
 REPO_HORCH = Path(__file__).resolve().parents[1] / "skills/agent-workers/scripts/agent-workers.py"
-SESSION_ENV = {"claude": "CLAUDE_CODE_SESSION_ID", "codex": "CODEX_THREAD_ID"}
+SESSION_ENV = {
+    "claude": "CLAUDE_CODE_SESSION_ID",
+    "codex": "CODEX_THREAD_ID",
+    "agy": "ANTIGRAVITY_CONVERSATION_ID",
+}
 
 
 def herdr(*args):

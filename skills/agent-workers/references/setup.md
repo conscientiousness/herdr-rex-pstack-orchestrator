@@ -8,7 +8,8 @@ Run the setup when the user asks for it, or when `agent-workers run` fails with 
    - Pi: run `pi --list-models <text>` to find a model. Use the `provider` key with the model ID from that list. `effort` is the Pi thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
    - Codex: the model name that `codex -m` accepts. `effort` is the value for Codex's `model_reasoning_effort`, such as `medium` or `high`.
    - Claude Code: an alias such as `opus`, `sonnet`, or `haiku`, or a full model ID. `effort` is the value for `claude --effort`, such as `high` or `max`.
-3. Ask for the permission arguments of each worker. A worker that stops at a permission prompt stays stuck, because you never answer dialogs. Tell the user that the flags they choose are their authorization for that worker. Recommend automatic approval modes. These flags completed real worker tasks without permission prompts on 2026-10-09:
+   - Antigravity CLI (`agy`): run `agy models` to list models. Either use a full effort-suffixed model ID (such as `gemini-3.8-flash-high` or `gemini-4-neon-high`) without `effort`, or use a base model name (such as `gemini-3.8-flash`) with `effort` (`low`, `medium`, `high`, `xhigh`, `max`). Passing a conflicting `effort` alongside an effort-suffixed model ID fails.
+3. Ask for the permission arguments of each worker. A worker that stops at a permission prompt stays stuck, because you never answer dialogs. Tell the user that the flags they choose are their authorization for that worker. Recommend automatic approval modes. These flags completed real worker tasks without permission prompts:
 
    | Harness | Arguments | Effect |
    |---|---|---|
@@ -17,6 +18,9 @@ Run the setup when the user asks for it, or when `agent-workers run` fails with 
    | `codex` | `-s workspace-write -a never` | Writes in its cwd and in the task directory, never prompts. Verified. |
    | `claude` | `--permission-mode auto` | Recommended. Automatically reviews actions. Verified for a worker and a controller that ran shell commands, delegated tasks, and read result files. |
    | `claude` | `--permission-mode acceptEdits` | Edits files without a prompt. Shell commands and reads outside the project can still prompt. Verified for file writes. |
+   | `agy` | `--mode auto` | Recommended. Auto-approves edits, runs commands in the terminal sandbox, and auto-checks commands outside the sandbox. Verified for reads/writes in the task directory outside cwd via `--add-dir`. Unavailable on business/enterprise accounts or without a terminal sandbox (falls back to default mode). |
+   | `agy` | `--dangerously-skip-permissions` | Auto-approves all tool permission requests without prompting. Use when `--mode auto` is unavailable. |
+   | `agy` | `--mode accept-edits` | Auto-approves workspace file edits without prompting. Shell commands and other tools can still prompt. |
 
    Automatic approval can deny an action. These runs verified successful workflows; they did not deliberately trigger a denial. Inspect and report any worker problem as described below. Startup trust dialogs are separate from action approval.
 
@@ -72,7 +76,7 @@ Legacy execution requires `HERDR_ENV=1`. Core requires caller verification whene
 
 1. For ordinary shell automation without controller session variables or a harness ancestor, the named pane's shell (`herdr pane process-info`, `shell_pid`) must be an ancestor of `agent-workers`. Its live workspace and tab are then used for placement. A contradictory pane claim is rejected.
 2. Agent controllers require explicit `--caller-pane` and `--caller-text` even when a pane shell is an ancestor: a shared daemon may still descend from another conversation's pane. An explicit conversation proof selects the actual controller rather than the daemon's process host. Tools outside all pane trees also require this proof.
-3. The confirmed pane's foreground must run the controller's harness in this conversation's cwd (the cwd of the `agent-workers` command, which can differ from the worker's `--cwd`). The text must contain at least 16 characters and, after whitespace normalization, match only that pane among live panes running the controller harness. Use distinctive text from this conversation's visible screen. When the controller exports `CODEX_THREAD_ID` or `CLAUDE_CODE_SESSION_ID` and the pane reports a session for that harness, the two must match; session metadata alone never replaces the screen check.
+3. The confirmed pane's foreground must run the controller's harness in this conversation's cwd (the cwd of the `agent-workers` command, which can differ from the worker's `--cwd`). The text must contain at least 16 characters and, after whitespace normalization, match only that pane among live panes running the controller harness. Use distinctive text from this conversation's visible screen. When the controller exports `CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID`, or `ANTIGRAVITY_CONVERSATION_ID` and the pane reports a session for that harness, the two must match; session metadata alone never replaces the screen check.
 
 Missing or unavailable caller panes also produce `caller_context_invalid`; an unavailable Herdr service remains a `herdr_error`. Never substitute the currently focused pane.
 
@@ -113,6 +117,7 @@ These appear before the worker reads its task. `agent-workers` reports `start_fa
 - Claude Code asks whether to trust a folder the first time it runs there.
 - Claude Code asks "Allow external CLAUDE.md file imports?" when the worker's cwd is a subdirectory of a project whose `CLAUDE.md` imports a file with `@`.
 - Pi 1.1.0 asks "Trust project folder?" when an untrusted directory has project resources, including an empty `.agents/skills` directory in an ancestor. Herdr 0.9.3 can misclassify this dialog as idle. `agent-workers` therefore waits for the Pi integration's session signal and sends no task prompt if it is absent. Trust is path-based; a git worktree outside a trusted directory may need its own decision. The user can choose Pi's `--approve` or `--no-approve` in worker `args` to explicitly allow or ignore project resources for that process; never add those flags to dismiss a dialog automatically.
+- Antigravity CLI (`agy`) asks "Do you trust the contents of this project?" for untrusted directories and saves trusted paths under `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`. It natively reports `blocked` via OSC 7501 during the trust prompt, so `agent-workers` leaves the task `start_failed` with `submission: "not_sent"` until the user trusts the folder.
 
 ## Reviewing configured workers
 
@@ -152,13 +157,19 @@ harness = "claude"
 model = "haiku"
 effort = "max"
 args = ["--permission-mode", "auto"]
+
+[workers.flash]
+description = "Fast investigation and bounded fixes."
+harness = "agy"
+model = "gemini-3.8-flash-high"
+args = ["--mode", "auto"]
 ```
 
 | Key | Meaning |
 |---|---|
 | `max_active_workers` | Default 4. Rex scopes reservations to a server and session. Core scopes them to the core ID and counts legacy tasks in a GUI caller's workspace. Legacy launches keep workspace limits. |
 | `notify_after_minutes` | When a task runs longer than this, `agent-workers wait` notifies once. Default 180. |
-| `workers.<name>.harness` | `pi`, `codex`, or `claude`. |
+| `workers.<name>.harness` | `pi`, `codex`, `claude`, or `agy`. |
 | `workers.<name>.model` | The model as the harness accepts it on its command line. |
 | `workers.<name>.provider` | Pi only. Passed as `--provider`. |
 | `workers.<name>.effort` | Optional reasoning effort. |
