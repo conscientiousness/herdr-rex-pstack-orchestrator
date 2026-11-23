@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """agent-workers - start, watch, and close worker agents in Herdr or Rex.
 
-Core of the agent-workers skill. Subcommands: run, wait, list, close, detect, check, stats.
+Core of the agent-workers skill. Subcommands: run, wait, list, roles, close, submit, verify-viewer, detect, check, stats.
 Python 3.11+, standard library only. Every command prints JSON on stdout;
 errors are one {"error": code, "message": text} object with exit status 1.
 """
@@ -63,6 +63,7 @@ SETTLED_STATES = {
     "result_invalid",
     "error",
 }
+PROBLEM_STATES = SETTLED_STATES - {"done"}
 
 POLL_SECONDS = 2.0
 ACK_TIMEOUT_MS = 15000
@@ -797,17 +798,100 @@ def caller_verification(pane, info, method, text):
     })
 
 
+def _same_cwd(raw_cwd, target_cwd):
+    if not raw_cwd:
+        return False
+    try:
+        return Path(raw_cwd).resolve() == target_cwd
+    except OSError:
+        return False
+
+
+def _herdr_session_mismatch(pane, controllers):
+    session = pane.get("agent_session") if isinstance(pane.get("agent_session"), dict) else {}
+    for harness in controllers:
+        own = os.environ[CONTROLLER_SESSION_ENV[harness]]
+        session_agents = HARNESS_PROCESS_NAMES.get(harness, {harness}) | {harness}
+        if harness == "agy":
+            session_agents |= {"antigravity-cli"}
+        if session.get("agent") in session_agents and session.get("value") and session["value"] != own:
+            return harness, session["value"], own
+    return None
+
+
+def _pane_has_live_ids(pane):
+    return isinstance(pane, dict) and all(
+        isinstance(pane.get(key), str) and pane[key].strip()
+        for key in ("pane_id", "tab_id", "workspace_id")
+    )
+
+
 def require_caller_context(claimed=None, caller_text=None):
     """Prove the conversation's live pane, independently of a daemon's process host.
 
-    Agent controllers require explicit pane and unique screen evidence even
-    when their daemon remains a descendant of its original pane's shell.
-    Ordinary shell automation can use its actual pane ancestry.
+    Agent controllers require unique screen evidence even when their daemon
+    remains a descendant of its original pane's shell. When --caller-text is
+    supplied without --caller-pane, live panes running an expected harness in
+    this cwd are scanned and accepted iff exactly one matches. Ordinary shell
+    automation can use its actual pane ancestry.
     """
-    source = "--caller-pane" if claimed is not None else "HERDR_PANE_ID"
-    pane_id = claimed if claimed is not None else os.environ.get("HERDR_PANE_ID")
     guidance = ("Confirm the controller's pane from its own process or session, never from UI focus, "
                 "and see caller context in references/setup.md.")
+    controllers = [h for h, var in CONTROLLER_SESSION_ENV.items() if os.environ.get(var)]
+    expected = controllers or list(HARNESSES)
+    expected_names = expected_process_names(expected)
+    cwd = Path.cwd().resolve()
+
+    # Auto-resolve controller pane from --caller-text when --caller-pane is omitted.
+    if claimed is None and caller_text is not None:
+        if len(caller_text.strip()) < 16:
+            fail("caller_context_invalid",
+                 "Agent-controller dispatch requires --caller-text with at least 16 characters unique to this "
+                 "conversation's visible screen.")
+        needle = " ".join(caller_text.split())
+        matches = []
+        for candidate in herdr_path(herdr("pane", "list", timeout=30.0), "result", "panes"):
+            candidate_id = candidate.get("pane_id") if isinstance(candidate, dict) else None
+            if not isinstance(candidate_id, str) or not candidate_id.strip():
+                continue
+            try:
+                candidate_info = pane_process_info(candidate_id)
+            except HerdrError as exc:
+                if herdr_error_code(exc) in MISSING_PANE_CODES:
+                    continue
+                raise
+            foreground = candidate_info.get("foreground_processes") or []
+            if not any(p.get("name") in expected_names and _same_cwd(p.get("cwd"), cwd) for p in foreground):
+                continue
+            try:
+                candidate_pane = herdr_path(
+                    herdr("pane", "current", "--pane", candidate_id, timeout=30.0), "result", "pane"
+                )
+            except HerdrError as exc:
+                if herdr_error_code(exc) in MISSING_PANE_CODES:
+                    continue
+                raise
+            if not _pane_has_live_ids(candidate_pane):
+                continue
+            if _herdr_session_mismatch(candidate_pane, controllers) is not None:
+                continue
+            try:
+                text = visible_text(candidate_pane["pane_id"])
+            except HerdrError as exc:
+                if herdr_error_code(exc) in MISSING_PANE_CODES:
+                    continue
+                raise
+            if needle in " ".join(text.split()):
+                matches.append((candidate_pane, candidate_info, text))
+        if len(matches) != 1:
+            fail("caller_context_invalid",
+                 f"Conversation text must match exactly one live controller pane in this cwd; "
+                 f"matching panes: {[m[0]['pane_id'] for m in matches]}. {guidance}")
+        pane, info, screen = matches[0]
+        return caller_verification(pane, info, "conversation_text", screen)
+
+    source = "--caller-pane" if claimed is not None else "HERDR_PANE_ID"
+    pane_id = claimed if claimed is not None else os.environ.get("HERDR_PANE_ID")
     # Herdr can fall back to UI focus when the caller pane ID is blank.
     if not pane_id or not pane_id.strip():
         fail("caller_context_invalid", f"Controller pane ID is missing. {guidance}")
@@ -817,15 +901,11 @@ def require_caller_context(claimed=None, caller_text=None):
         if herdr_error_code(exc) not in MISSING_PANE_CODES:
             raise
         fail("caller_context_invalid", f"Controller pane {pane_id!r} is no longer available. {guidance}")
-    if not isinstance(pane, dict) or any(
-        not isinstance(pane.get(key), str) or not pane[key].strip()
-        for key in ("pane_id", "tab_id", "workspace_id")
-    ):
+    if not _pane_has_live_ids(pane):
         fail("caller_context_invalid", f"Controller context is missing live Herdr IDs. {guidance}")
 
     info = pane_process_info(pane["pane_id"])
     ancestors = process_ancestors()
-    controllers = [h for h, var in CONTROLLER_SESSION_ENV.items() if os.environ.get(var)]
     needs_screen = bool(controllers) or controller_process_ancestor(ancestors) or caller_text is not None
     if info.get("shell_pid") in ancestors and not needs_screen:
         return caller_verification(pane, info, "process_ancestry", visible_text(pane["pane_id"]))
@@ -838,32 +918,25 @@ def require_caller_context(claimed=None, caller_text=None):
         fail("caller_context_invalid",
              f"HERDR_PANE_ID={pane_id!r} cannot prove this conversation's pane; "
              "a shared daemon may inherit another pane's environment and ancestry. "
-             f"Confirm the controller and pass --caller-pane <pane-id> --caller-text <unique-text>. {guidance}")
+             f"Pass --caller-text <unique-text> (or --caller-pane <pane-id> --caller-text <unique-text>). {guidance}")
 
-    expected = controllers or list(HARNESSES)
-    expected_names = expected_process_names(expected)
     names = {p.get("name") for p in info.get("foreground_processes") or [] if isinstance(p, dict)}
     if not names.intersection(expected_names):
         fail("caller_context_invalid",
              f"--caller-pane {pane_id!r} is not running {' or '.join(expected)} in its foreground "
              f"(found: {', '.join(sorted(n for n in names if n)) or 'nothing'}). {guidance}")
-    session = pane.get("agent_session") if isinstance(pane.get("agent_session"), dict) else {}
-    for harness in controllers:
-        own = os.environ[CONTROLLER_SESSION_ENV[harness]]
-        session_agents = HARNESS_PROCESS_NAMES.get(harness, {harness}) | {harness}
-        if harness == "agy":
-            session_agents |= {"antigravity-cli"}
-        if session.get("agent") in session_agents and session.get("value") and session["value"] != own:
-            fail("caller_context_invalid",
-                 f"--caller-pane {pane_id!r} reports {harness} session {session['value']!r}, "
-                 f"not this controller's {own!r}. {guidance}")
+    mismatch = _herdr_session_mismatch(pane, controllers)
+    if mismatch is not None:
+        harness, reported_session, own = mismatch
+        fail("caller_context_invalid",
+             f"--caller-pane {pane_id!r} reports {harness} session {reported_session!r}, "
+             f"not this controller's {own!r}. {guidance}")
     if not caller_text or len(caller_text.strip()) < 16:
         fail("caller_context_invalid",
              "Agent-controller dispatch requires --caller-text with at least 16 characters unique to this "
              "conversation's visible screen, alongside --caller-pane. Session IDs alone are insufficient.")
     foreground = info.get("foreground_processes") or []
-    if not any(p.get("name") in expected_names and p.get("cwd")
-               and Path(p["cwd"]).resolve() == Path.cwd().resolve() for p in foreground):
+    if not any(p.get("name") in expected_names and _same_cwd(p.get("cwd"), cwd) for p in foreground):
         fail("caller_context_invalid", "Controller foreground cwd does not match this conversation's cwd. " + guidance)
     needle = " ".join(caller_text.split())
     matches = []
@@ -924,11 +997,63 @@ def rex_foreground_harness(process, expected):
 
 
 def require_rex_context(claimed, caller_text):
-    """Prove the caller with its local process tree or explicit conversation evidence."""
+    """Prove the caller with its local process tree or conversation screen evidence."""
+    guidance = ("Confirm the controller's full Rex block ID or pass --caller-text <unique visible conversation text>. "
+                "Agent-controller tools require --caller-text (optionally with --caller-block <id>).")
+    controllers = [h for h, var in CONTROLLER_SESSION_ENV.items() if os.environ.get(var)]
+    expected = controllers or HARNESSES
+    cwd = Path.cwd().resolve()
+
+    # Auto-resolve controller block from --caller-text when --caller-block is omitted.
+    if claimed is None and caller_text is not None:
+        if len(caller_text.strip()) < 16:
+            fail("caller_context_invalid",
+                 f"Rex caller proof requires --caller-text with at least 16 characters unique to this "
+                 f"conversation's visible screen. {guidance}")
+        base_binding = rex.new_binding()
+        blocks = rex.blocks(base_binding, all_sessions=True)
+        needle = " ".join(caller_text.split())
+        matches = []
+        for candidate in blocks:
+            if (not candidate.get("window_id") or candidate.get("host_id") != base_binding["host_id"]
+                    or candidate.get("creator_name") != rex.TERMINAL):
+                continue
+            candidate_id = candidate["block_id"]
+            candidate_binding = dict(base_binding, session=candidate["session_id"])
+            try:
+                candidate_process = rex.block_process(candidate_binding, candidate_id)
+            except rex.RexError as exc:
+                if exc.kind == "target_not_found":
+                    continue
+                raise
+            candidate_cwd = (candidate_process.get("foreground") or {}).get("cwd")
+            if not _same_cwd(candidate_cwd, cwd) or not rex_foreground_harness(candidate_process, expected):
+                continue
+            try:
+                screen = rex.capture(candidate_binding, candidate_id, visible=True)
+            except rex.RexError as exc:
+                if exc.kind == "target_not_found":
+                    continue
+                raise
+            if needle in " ".join(screen.split()):
+                matches.append((candidate, candidate_binding, candidate_process, screen))
+        if len(matches) != 1:
+            fail("caller_context_invalid",
+                 f"Conversation text must match exactly one Rex controller block in this cwd; "
+                 f"matches: {[m[0]['block_id'] for m in matches]}. {guidance}")
+        caller, binding, process, screen = matches[0]
+        block_id = caller["block_id"]
+        child, foreground = process.get("child") or {}, process.get("foreground") or {}
+        screen_hash = hashlib.sha256(screen.encode()).hexdigest()
+        return {"binding": binding, "block_id": block_id, "window_id": caller["window_id"],
+                "workspace_id": binding["session"], "controller_verification": {
+                    "session_id": binding["session"], "window_id": caller["window_id"], "block_id": block_id,
+                    "child_pid": child.get("pid"), "foreground_pid": foreground.get("pid"),
+                    "cwd": str(cwd), "method": "conversation_text", "screen_sha256": screen_hash, "verified_at": iso_now(),
+                }}
+
     block_id = claimed if claimed is not None else os.environ.get("REX_BLOCK", "")
     session_id = os.environ.get("REX_SESSION", "")
-    guidance = ("Confirm the controller's full Rex block ID. Agent-controller tools require "
-                "--caller-block <id> --caller-text <unique visible conversation text>.")
     if not rex.full_id(block_id, "block") or (claimed is None and not rex.full_id(session_id, "session")):
         fail("caller_context_invalid", f"Rex caller context is incomplete. {guidance}")
 
@@ -942,17 +1067,14 @@ def require_rex_context(claimed, caller_text):
     process = rex.block_process(binding, block_id)
     child, foreground = process.get("child") or {}, process.get("foreground") or {}
     ancestors = process_ancestors(stop_at=child.get("pid"))
-    controllers = [h for h, var in CONTROLLER_SESSION_ENV.items() if os.environ.get(var)]
-    expected = controllers or HARNESSES
     needs_screen = bool(controllers) or controller_process_ancestor(ancestors) or caller_text is not None
-    cwd = Path.cwd().resolve()
     screen_hash = None
     if child.get("pid") in ancestors and not needs_screen:
         method = "process_ancestry"
     else:
         if (claimed is None or not caller_text or len(caller_text.strip()) < 16
                 or not rex_foreground_harness(process, expected)
-                or not foreground.get("cwd") or Path(foreground["cwd"]).resolve() != cwd):
+                or not _same_cwd(foreground.get("cwd"), cwd)):
             fail("caller_context_invalid", f"Rex caller proof requires an explicit block, its foreground harness "
                  f"in the conversation cwd, and unique visible text. {guidance}")
         needle = " ".join(caller_text.split())
@@ -965,7 +1087,7 @@ def require_rex_context(claimed, caller_text):
             candidate_binding = dict(binding, session=candidate["session_id"])
             candidate_process = process if candidate_id == block_id else rex.block_process(candidate_binding, candidate_id)
             candidate_cwd = (candidate_process.get("foreground") or {}).get("cwd")
-            if (not candidate_cwd or Path(candidate_cwd).resolve() != cwd
+            if (not _same_cwd(candidate_cwd, cwd)
                     or not rex_foreground_harness(candidate_process, expected)):
                 continue
             screen = rex.capture(candidate_binding, candidate_id, visible=True)
@@ -999,14 +1121,19 @@ def dispatch_context(args):
 def cmd_run(args):
     caller, binary = dispatch_context(args)
     config = load_config()
-    brief_source = Path(args.brief).expanduser()
-    try:
-        brief_source = brief_source.resolve(strict=True)
-    except OSError:
-        brief_source = None
-    if brief_source is None or not brief_source.is_file():
-        fail("brief_not_found", f"brief file not found: {args.brief}")
-    brief_text = brief_source.read_text(encoding="utf-8", errors="replace")
+    if args.brief == "-":
+        brief_text = sys.stdin.read()
+        if not brief_text.strip():
+            fail("brief_empty", "brief from stdin is empty")
+    else:
+        brief_source = Path(args.brief).expanduser()
+        try:
+            brief_source = brief_source.resolve(strict=True)
+        except OSError:
+            brief_source = None
+        if brief_source is None or not brief_source.is_file():
+            fail("brief_not_found", f"brief file not found: {args.brief}")
+        brief_text = brief_source.read_text(encoding="utf-8", errors="replace")
     worker = config["workers"].get(args.worker)
     binding = caller.get("binding") if caller else None
     if binding is None and binary is None and worker is not None and worker["harness"] == "pi":
@@ -1019,13 +1146,15 @@ def cmd_run(args):
 
 def start_task(config, worker_name, brief_text, cwd, *, skip_if_full=False,
                caller_pane=None, caller_text=None, binding=None, caller=None):
-    # Startup includes placement, publication, and acknowledgement, never completion.
-    with task_store_lock():
-        if binding is not None and binding["kind"] == "rex":
-            return start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller)
-        if binding is not None:
-            return start_core_task(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text, binding)
-        return _start_task_locked(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text)
+    # Hold task_store_lock() only during capacity check, reservation, and placement;
+    # release it before waiting on harness readiness, viewer verification, and prompt ack.
+    if binding is not None and binding["kind"] == "rex":
+        return start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller)
+    if binding is not None:
+        return start_core_task(config, worker_name, brief_text, cwd, skip_if_full,
+                               caller_pane, caller_text, binding, caller=caller)
+    return start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full,
+                             caller_pane, caller_text, caller=caller)
 
 
 def core_agent(terminal):
@@ -1126,15 +1255,35 @@ def viewer_fields(task):
             "warning": task.get("viewer_warning")}
 
 
+def persist_viewer_verification(directory, task):
+    """Merge viewer verification fields into task.json under the per-task lock."""
+    with task_state_lock(directory):
+        stored = load_task(directory, task["task_id"])
+        for key in ("viewer_verified", "viewer_verification_error", "viewer_verification", "viewer_warning"):
+            if key in task:
+                stored[key] = task[key]
+            else:
+                stored.pop(key, None)
+        write_json(directory / "task.json", stored)
+        task.update(stored)
+
+
+def abort_starting_state(directory, state, reason):
+    """Avoid stranding a task in state='starting' if phase 2 is interrupted."""
+    if state["state"] == "starting" and not state["closed"]:
+        state["state"] = "start_failed"
+        state["problem"] = reason
+        save_state(directory, state)
+
+
 def cmd_verify_viewer(args):
-    with task_store_lock():
-        directory = task_dir(args.task_id)
-        task = load_task(directory, args.task_id)
-        if not is_core(task):
-            fail("invalid_arguments", "verify-viewer requires a core task")
-        verify_viewer(task)
-        write_json(directory / "task.json", task)
-        emit({"task_id": args.task_id, **viewer_fields(task)})
+    directory = task_dir(args.task_id)
+    task = load_task(directory, args.task_id)
+    if not is_core(task):
+        fail("invalid_arguments", "verify-viewer requires a core task")
+    verify_viewer(task)
+    persist_viewer_verification(directory, task)
+    emit({"task_id": args.task_id, **viewer_fields(task)})
 
 
 def submit_core_task(directory, task, state):
@@ -1181,25 +1330,32 @@ def submit_core_task(directory, task, state):
 
 
 def cmd_submit(args):
-    with task_store_lock():
-        directory = task_dir(args.task_id)
-        task = load_task(directory, args.task_id)
+    directory = task_dir(args.task_id)
+    task = load_task(directory, args.task_id)
+    if not (is_core(task) or is_rex(task)):
+        fail("invalid_arguments", "submit recovery requires a core or Rex task; inspect and close the legacy task before a fresh run")
+    if is_rex(task) and not task["backend"]["block"]:
+        fail("submission_unsafe", "Rex block creation is unresolved; inspect and close the task before a fresh run")
+    with task_state_lock(directory):
         state = load_state(directory)
-        if not (is_core(task) or is_rex(task)):
-            fail("invalid_arguments", "submit recovery requires a core or Rex task; inspect and close the legacy task before a fresh run")
-        if state["closed"] or state["state"] == "done" or state["submission"] != "not_sent":
-            fail("submission_unsafe", "Only an unclosed task recorded as not_sent can be submitted; sent, unknown and historical outcomes must never be resent")
+        if state["closed"] or state["state"] in ("done", "starting") or state["submission"] != "not_sent":
+            fail("submission_unsafe", "Only an unclosed, non-starting task recorded as not_sent can be submitted; sent, unknown, starting and historical outcomes must never be resent")
+        state["state"] = "starting"
+        state["problem"] = None
+        write_json(directory / "state.json", state)
+    try:
         if is_rex(task):
-            if not task["backend"]["block"]:
-                fail("submission_unsafe", "Rex block creation is unresolved; inspect and close the task before a fresh run")
             submit_rex_task(directory, task, state)
             target = rex_location(task["backend"])
         else:
             submit_core_task(directory, task, state)
             target = {"terminal_id": task["backend"]["terminal"]}
-        emit({"task_id": args.task_id, "state": state["state"], "message": state["problem"],
-              **target,
-              **progress_fields(state), **viewer_fields(task)})
+    except BaseException:
+        abort_starting_state(directory, state, "recovery submission interrupted; inspect the task before retrying")
+        raise
+    emit({"task_id": args.task_id, "state": state["state"], "message": state["problem"],
+          **target,
+          **progress_fields(state), **viewer_fields(task)})
 
 
 def rex_location(binding):
@@ -1290,153 +1446,182 @@ def submit_rex_task(directory, task, state):
     save_state(directory, state)
 
 
+def _refresh_herdr_caller(caller):
+    try:
+        pane = herdr_path(herdr("pane", "current", "--pane", caller["pane_id"], timeout=30.0), "result", "pane")
+    except HerdrError as exc:
+        if herdr_error_code(exc) not in MISSING_PANE_CODES:
+            raise
+        fail("caller_context_invalid", f"Controller pane {caller['pane_id']!r} is no longer available.")
+    if not _pane_has_live_ids(pane):
+        fail("caller_context_invalid", "Controller context is missing live Herdr IDs.")
+    return dict(caller, pane_id=pane["pane_id"], tab_id=pane["tab_id"], workspace_id=pane["workspace_id"])
+
+
 def start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller):
     worker = config["workers"].get(worker_name)
     if worker is None:
         fail("unknown_worker", f"no worker named {worker_name!r} in {config_path()}")
-    context = caller["binding"]
-    if not any(block["block_id"] == caller["block_id"] and block.get("window_id") == caller["window_id"]
-               and block.get("host_id") == context["host_id"] for block in rex.blocks(context)):
-        fail("caller_context_invalid", "The Rex controller moved or disappeared; confirm its current block before dispatch")
-    active, invalid, windows = task_capacity(context["session"], context)
-    if active >= config["max_active_workers"]:
-        if skip_if_full:
-            return None
-        fail("worker_limit", f"Rex session {context['session']} has {active} reserved tasks; "
-             f"max_active_workers = {config['max_active_workers']}; invalid tasks: {invalid}")
     program = shutil.which(worker["harness"])
     if not program:
         fail("rex_error", f"configured harness {worker['harness']} is not installed")
-    task_id = "t-" + secrets.token_hex(3)
-    directory = task_dir(task_id)
-    while directory.exists():
+    context = caller["binding"]
+    with task_store_lock():
+        if not any(block["block_id"] == caller["block_id"] and block.get("window_id") == caller["window_id"]
+                   and block.get("host_id") == context["host_id"] for block in rex.blocks(context)):
+            fail("caller_context_invalid", "The Rex controller moved or disappeared; confirm its current block before dispatch")
+        active, invalid, windows = task_capacity(context["session"], context)
+        if active >= config["max_active_workers"]:
+            if skip_if_full:
+                return None
+            fail("worker_limit", f"Rex session {context['session']} has {active} reserved tasks; "
+                 f"max_active_workers = {config['max_active_workers']}; invalid tasks: {invalid}")
         task_id = "t-" + secrets.token_hex(3)
         directory = task_dir(task_id)
-    nonce = secrets.token_hex(8)
-    agent = "horch-" + task_id[2:]
-    argv = native_launch_args(worker, directory, "Rex")
-    label = f"{worker_label(worker_name, worker['harness'])} · {nonce}"
-    binding = dict(context, window=None, block=None, label=label, harness=worker["harness"])
-    task = {"task_id": task_id, "nonce": nonce, "worker": worker_name,
-            "harness": worker["harness"], "model": worker["model"], "cwd": str(cwd),
-            "task_dir": str(directory), "brief_path": str(directory / "brief.md"),
-            "result_path": str(directory / "result.json"), "agent": agent,
-            "pane_id": binding["label"], "argv": argv, "created_at": iso_now(), "backend": binding,
-            "workspace_id": context["session"], "controller_verification": caller["controller_verification"]}
-    directory.mkdir(parents=True)
-    write_brief(directory, brief_text, task_id, nonce)
-    state = default_state()
-    state.update(state="starting", submission="not_sent")
-    write_json(directory / "state.json", state)
-    write_json(directory / "task.json", task)
-    command = [sys.executable, str(Path(__file__).resolve()), "--exec-rex-worker", os.path.abspath(program), *argv]
-    try:
-        try:
-            placement = rex.launch(binding, caller["window_id"], windows, command, cwd, PANES_PER_TAB)
-        except rex.RexError as exc:
-            if exc.kind == "worker_absent":
-                raise
-            placement = rex.reconcile(binding)
-            if placement is None:
-                raise rex.RexError(f"Rex creation outcome unresolved: {exc}; reservation retained. "
-                                   f"Inspect worker label {binding['label']} at the stored endpoint") from exc
-            if (placement["window"] == caller["window_id"] or not any(
-                    window["window_id"] == placement["window"] and window.get("label") == rex.WINDOW_LABEL
-                    for window in rex.windows(binding))):
-                rex.close(dict(binding, **placement))
-                raise rex.RexError("Recovered Rex worker was outside a worker tab and was removed", "worker_absent")
-        binding.update(placement)
-        task["pane_id"] = binding["block"]
+        while directory.exists():
+            task_id = "t-" + secrets.token_hex(3)
+            directory = task_dir(task_id)
+        nonce = secrets.token_hex(8)
+        agent = "horch-" + task_id[2:]
+        argv = native_launch_args(worker, directory, "Rex")
+        label = f"{worker_label(worker_name, worker['harness'])} · {nonce}"
+        binding = dict(context, window=None, block=None, label=label, harness=worker["harness"])
+        task = {"task_id": task_id, "nonce": nonce, "worker": worker_name,
+                "harness": worker["harness"], "model": worker["model"], "cwd": str(cwd),
+                "task_dir": str(directory), "brief_path": str(directory / "brief.md"),
+                "result_path": str(directory / "result.json"), "agent": agent,
+                "pane_id": binding["label"], "argv": argv, "created_at": iso_now(), "backend": binding,
+                "workspace_id": context["session"], "controller_verification": caller["controller_verification"]}
+        directory.mkdir(parents=True)
+        write_brief(directory, brief_text, task_id, nonce)
+        state = default_state()
+        state.update(state="starting", submission="not_sent")
+        write_json(directory / "state.json", state)
         write_json(directory / "task.json", task)
-    except rex.RexError as exc:
-        state.update(state="start_failed", problem=str(exc), closed=exc.kind == "worker_absent")
-        save_state(directory, state)
+        command = [sys.executable, str(Path(__file__).resolve()), "--exec-rex-worker", os.path.abspath(program), *argv]
+        try:
+            try:
+                placement = rex.launch(binding, caller["window_id"], windows, command, cwd, PANES_PER_TAB)
+            except rex.RexError as exc:
+                if exc.kind == "worker_absent":
+                    raise
+                placement = rex.reconcile(binding)
+                if placement is None:
+                    raise rex.RexError(f"Rex creation outcome unresolved: {exc}; reservation retained. "
+                                       f"Inspect worker label {binding['label']} at the stored endpoint") from exc
+                if (placement["window"] == caller["window_id"] or not any(
+                        window["window_id"] == placement["window"] and window.get("label") == rex.WINDOW_LABEL
+                        for window in rex.windows(binding))):
+                    rex.close(dict(binding, **placement))
+                    raise rex.RexError("Recovered Rex worker was outside a worker tab and was removed", "worker_absent")
+            binding.update(placement)
+            task["pane_id"] = binding["block"]
+            write_json(directory / "task.json", task)
+        except rex.RexError as exc:
+            state.update(state="start_failed", problem=str(exc), closed=exc.kind == "worker_absent")
+            save_state(directory, state)
+    # Lock released: wait for harness readiness and submit prompt concurrently.
     if state["state"] == "starting" and not state["closed"]:
-        submit_rex_task(directory, task, state)
+        try:
+            submit_rex_task(directory, task, state)
+        except BaseException:
+            abort_starting_state(directory, state, "Rex startup interrupted before submission; inspect the task")
+            raise
     return {"task_id": task_id, "worker": worker_name, "agent": agent, "pane_id": task["pane_id"],
             "backend": "rex", **rex_location(binding), "state": state["state"], "message": state["problem"],
             **progress_fields(state), "controller_verification": task["controller_verification"],
             "brief_path": task["brief_path"], "task_dir": task["task_dir"]}
 
 
-def start_core_task(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text, binding):
+def start_core_task(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text, binding, caller=None):
     worker = config["workers"].get(worker_name)
     if worker is None:
         fail("unknown_worker", f"no worker named {worker_name!r} in {config_path()}")
-    caller = core_caller_context(caller_pane, caller_text)
-    active, invalid, owned_tabs = task_capacity(caller["workspace_id"] if caller else None, binding)
-    if active >= config["max_active_workers"]:
-        if skip_if_full:
-            return None
-        fail("worker_limit", f"core session {binding['session']} has {active} reserved tasks; "
-             f"max_active_workers = {config['max_active_workers']}; invalid tasks: {invalid}")
-    task_id = "t-" + secrets.token_hex(3)
-    directory = task_dir(task_id)
-    while directory.exists():
+    if caller is None and (caller_pane is not None or caller_text is not None or has_herdr_context()):
+        caller = core_caller_context(caller_pane, caller_text)
+    with task_store_lock():
+        if caller is not None:
+            caller = _refresh_herdr_caller(caller)
+        active, invalid, owned_tabs = task_capacity(caller["workspace_id"] if caller else None, binding)
+        if active >= config["max_active_workers"]:
+            if skip_if_full:
+                return None
+            fail("worker_limit", f"core session {binding['session']} has {active} reserved tasks; "
+                 f"max_active_workers = {config['max_active_workers']}; invalid tasks: {invalid}")
         task_id = "t-" + secrets.token_hex(3)
         directory = task_dir(task_id)
-    nonce = secrets.token_hex(8)
-    argv = native_launch_args(worker, directory, "core")
-    binding = dict(binding, terminal="horch-" + task_id[2:], name="horch-" + task_id[2:], nonce=nonce)
-    task = {"task_id": task_id, "nonce": nonce, "worker": worker_name,
-            "harness": worker["harness"], "model": worker["model"], "cwd": str(cwd),
-            "task_dir": str(directory), "brief_path": str(directory / "brief.md"),
-            "result_path": str(directory / "result.json"), "agent": binding["name"],
-            "pane_id": binding["terminal"], "argv": argv, "created_at": iso_now(),
-            "backend": binding, "viewer": None}
-    if caller:
-        task["workspace_id"] = caller["workspace_id"]
-        task["controller_verification"] = caller["controller_verification"]
-    directory.mkdir(parents=True)
-    write_brief(directory, brief_text, task_id, nonce)
-    write_json(directory / "task.json", task)
-    state = default_state()
-    state["submission"] = "not_sent"
-    save_state(directory, state)
-    try:
-        try:
-            terminal = core.launch(binding, worker["harness"], argv, cwd)
-        except core.CoreError as exc:
-            terminal = core.get(binding)
-            if terminal is None:
-                raise core.CoreError(f"creation outcome unresolved: {exc}; reservation retained. "
-                                     f"Inspect {binding['name']} at the stored endpoint; do not relaunch") from exc
-        binding["terminal"] = terminal["address"]
-        task["pane_id"] = terminal["address"]
+        while directory.exists():
+            task_id = "t-" + secrets.token_hex(3)
+            directory = task_dir(task_id)
+        nonce = secrets.token_hex(8)
+        argv = native_launch_args(worker, directory, "core")
+        binding = dict(binding, terminal="horch-" + task_id[2:], name="horch-" + task_id[2:], nonce=nonce)
+        task = {"task_id": task_id, "nonce": nonce, "worker": worker_name,
+                "harness": worker["harness"], "model": worker["model"], "cwd": str(cwd),
+                "task_dir": str(directory), "brief_path": str(directory / "brief.md"),
+                "result_path": str(directory / "result.json"), "agent": binding["name"],
+                "pane_id": binding["terminal"], "argv": argv, "created_at": iso_now(),
+                "backend": binding, "viewer": None}
+        if caller:
+            task["workspace_id"] = caller["workspace_id"]
+            task["controller_verification"] = caller["controller_verification"]
+        directory.mkdir(parents=True)
+        write_brief(directory, brief_text, task_id, nonce)
         write_json(directory / "task.json", task)
-        if caller:
-            try:
-                viewer_socket = os.environ.get("HERDR_SOCKET_PATH")
-                if not viewer_socket:
-                    raise HerdrError("cannot pin viewer endpoint without HERDR_SOCKET_PATH; no GUI writes attempted")
-                task["viewer_socket"] = viewer_socket
-                task["viewer_unresolved"] = True
-                write_json(directory / "task.json", task)
-                pane_id, tab_id = place_pane(caller["workspace_id"], cwd, caller["tab_id"], owned_tabs)
-                task["viewer"] = {"pane_id": pane_id, "tab_id": tab_id, "socket_path": viewer_socket,
-                                  "tab_label": WORKER_TAB_LABEL}
-                task["viewer_unresolved"] = False
-                write_json(directory / "task.json", task)
-                label_worker_pane(pane_id, worker_name, worker["harness"])
-                env = core.cli_env(binding)
-                assignments = [f"{k}={env[k]}" for k in (*binding["env"], "HC_SESSION", "HC_SOCKET")]
-                command = shlex.join(["env", "-u", "HC_TERMINAL_ID", *assignments,
-                                      binding["executable"], "attach", binding["terminal"]])
-                herdr("pane", "run", pane_id, command, timeout=30, expect_json=False)
-            except HerdrError as exc:
-                warning = f"core worker retained; required Workers viewer failed: {exc}; "
-                warning += "inspect for an empty viewer pane after ambiguous placement"
-                task["viewer_warning"] = warning
-                write_json(directory / "task.json", task)
-        if caller:
-            verify_viewer(task)
-            write_json(directory / "task.json", task)
-    except core.CoreError as exc:
-        state["state"] = "start_failed"
-        state["problem"] = str(exc)
+        state = default_state()
+        state.update(state="starting", submission="not_sent")
         save_state(directory, state)
-    if state["state"] == "running" and not state["closed"]:
-        submit_core_task(directory, task, state)
+        try:
+            try:
+                terminal = core.launch(binding, worker["harness"], argv, cwd)
+            except core.CoreError as exc:
+                terminal = core.get(binding)
+                if terminal is None:
+                    raise core.CoreError(f"creation outcome unresolved: {exc}; reservation retained. "
+                                         f"Inspect {binding['name']} at the stored endpoint; do not relaunch") from exc
+            binding["terminal"] = terminal["address"]
+            task["pane_id"] = terminal["address"]
+            write_json(directory / "task.json", task)
+            if caller:
+                try:
+                    viewer_socket = os.environ.get("HERDR_SOCKET_PATH")
+                    if not viewer_socket:
+                        raise HerdrError("cannot pin viewer endpoint without HERDR_SOCKET_PATH; no GUI writes attempted")
+                    task["viewer_socket"] = viewer_socket
+                    task["viewer_unresolved"] = True
+                    write_json(directory / "task.json", task)
+                    pane_id, tab_id = place_pane(caller["workspace_id"], cwd, caller["tab_id"], owned_tabs)
+                    task["viewer"] = {"pane_id": pane_id, "tab_id": tab_id, "socket_path": viewer_socket,
+                                      "tab_label": WORKER_TAB_LABEL}
+                    task["viewer_unresolved"] = False
+                    write_json(directory / "task.json", task)
+                    label_worker_pane(pane_id, worker_name, worker["harness"])
+                    env = core.cli_env(binding)
+                    assignments = [f"{k}={env[k]}" for k in (*binding["env"], "HC_SESSION", "HC_SOCKET")]
+                    command = shlex.join(["env", "-u", "HC_TERMINAL_ID", *assignments,
+                                          binding["executable"], "attach", binding["terminal"]])
+                    herdr("pane", "run", pane_id, command, timeout=30, expect_json=False)
+                except HerdrError as exc:
+                    warning = f"core worker retained; required Workers viewer failed: {exc}; "
+                    warning += "inspect for an empty viewer pane after ambiguous placement"
+                    task["viewer_warning"] = warning
+                    write_json(directory / "task.json", task)
+        except core.CoreError as exc:
+            state["state"] = "start_failed"
+            state["problem"] = str(exc)
+            save_state(directory, state)
+    # Lock released: verify viewer and wait for harness readiness/submission concurrently.
+    if state["state"] == "starting" and not state["closed"]:
+        try:
+            if caller:
+                verify_viewer(task)
+                persist_viewer_verification(directory, task)
+            state = load_state(directory)
+            if state["state"] == "starting" and not state["closed"]:
+                submit_core_task(directory, task, state)
+        except BaseException:
+            abort_starting_state(directory, state, "core startup interrupted before submission; inspect the task")
+            raise
     return {"task_id": task_id, "worker": worker_name, "agent": task["agent"],
             "pane_id": task["pane_id"], "terminal_id": binding["terminal"], "backend": "core",
             "state": state["state"], "message": state["problem"],
@@ -1466,91 +1651,95 @@ def wait_for_pi_session(agent, deadline):
                      "integration is installed with herdr integration install pi")
 
 
-def _start_task_locked(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text):
-    """Start one worker on one task and return the run object; fail() on contract errors."""
-    caller = require_caller_context(caller_pane, caller_text)
+def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text, caller=None):
+    """Start one legacy Herdr worker on one task and return the run object; fail() on contract errors."""
     worker = config["workers"].get(worker_name)
     if worker is None:
         fail("unknown_worker", f"no worker named {worker_name!r} in {config_path()}")
+    if caller is None:
+        caller = require_caller_context(caller_pane, caller_text)
 
-    max_active = config["max_active_workers"]
-    active, invalid, owned_tabs = task_capacity(caller["workspace_id"])
-    if active >= max_active:
-        if skip_if_full:
-            return None
-        guidance = (f"; invalid tasks: {', '.join(invalid)}; inspect them with agent-workers list"
-                    if invalid else "")
-        fail(
-            "worker_limit",
-            f"worker limit reached in workspace {caller['workspace_id']}: "
-            f"{active} active tasks, max_active_workers = {max_active}{guidance}",
-        )
+    with task_store_lock():
+        caller = _refresh_herdr_caller(caller)
+        max_active = config["max_active_workers"]
+        active, invalid, owned_tabs = task_capacity(caller["workspace_id"])
+        if active >= max_active:
+            if skip_if_full:
+                return None
+            guidance = (f"; invalid tasks: {', '.join(invalid)}; inspect them with agent-workers list"
+                        if invalid else "")
+            fail(
+                "worker_limit",
+                f"worker limit reached in workspace {caller['workspace_id']}: "
+                f"{active} active tasks, max_active_workers = {max_active}{guidance}",
+            )
 
-    root = tasks_root()
-    taken = {d.name for d in root.iterdir()} if root.is_dir() else set()
-    while True:
-        task_id = "t-" + secrets.token_hex(3)
-        if task_id not in taken:
-            break
-    agent = "horch-" + task_id[2:]
-    nonce = secrets.token_hex(8)
+        root = tasks_root()
+        taken = {d.name for d in root.iterdir()} if root.is_dir() else set()
+        while True:
+            task_id = "t-" + secrets.token_hex(3)
+            if task_id not in taken:
+                break
+        agent = "horch-" + task_id[2:]
+        nonce = secrets.token_hex(8)
 
-    directory = root / task_id
-    directory.mkdir(parents=True)
-    try:
-        write_brief(directory, brief_text, task_id, nonce)
-    except BaseException:
-        shutil.rmtree(directory, ignore_errors=True)
-        raise
-    try:
-        pane_id, tab_id = place_pane(caller["workspace_id"], cwd, caller["tab_id"], owned_tabs)
-    except BaseException as exc:
-        shutil.rmtree(directory, ignore_errors=True)
-        print(f"warning: pane placement failed: {exc}; an empty pane may exist "
-              "after an ambiguous placement failure", file=sys.stderr)
-        raise
-
-    task = {
-        "task_id": task_id,
-        "nonce": nonce,
-        "worker": worker_name,
-        "harness": worker["harness"],
-        "model": worker["model"],
-        "cwd": str(cwd),
-        "task_dir": str(directory),
-        "brief_path": str(directory / "brief.md"),
-        "result_path": str(directory / "result.json"),
-        "agent": agent,
-        "pane_id": pane_id,
-        "tab_id": tab_id,
-        "workspace_id": caller["workspace_id"],
-        "controller_verification": caller["controller_verification"],
-        "argv": launch_args(worker, directory),
-        "backend": {"kind": "legacy", "socket_path": os.environ.get("HERDR_SOCKET_PATH")},
-        "created_at": iso_now(),
-    }
-    state = default_state()
-    state["submission"] = "not_sent"
-    try:
-        write_json(directory / "task.json", task)
-        save_state(directory, state)
-    except BaseException:
-        # If publication fails, close the unused pane. If close is uncertain,
-        # retain/publish its reservation so a later launch cannot reuse the slot.
+        directory = root / task_id
+        directory.mkdir(parents=True)
         try:
-            close_pane(pane_id)
-        except HerdrError as exc:
-            state["state"] = "start_failed"
-            state["problem"] = f"task publication failed; unused pane cleanup failed: {exc}"
-            try:
-                write_json(directory / "task.json", task)
-                save_state(directory, state)
-            except OSError as recovery_error:
-                print(f"warning: cannot preserve task {task_id} for pane {pane_id}: "
-                      f"{recovery_error}", file=sys.stderr)
-        else:
+            write_brief(directory, brief_text, task_id, nonce)
+        except BaseException:
             shutil.rmtree(directory, ignore_errors=True)
-        raise
+            raise
+        try:
+            pane_id, tab_id = place_pane(caller["workspace_id"], cwd, caller["tab_id"], owned_tabs)
+        except BaseException as exc:
+            shutil.rmtree(directory, ignore_errors=True)
+            print(f"warning: pane placement failed: {exc}; an empty pane may exist "
+                  "after an ambiguous placement failure", file=sys.stderr)
+            raise
+
+        task = {
+            "task_id": task_id,
+            "nonce": nonce,
+            "worker": worker_name,
+            "harness": worker["harness"],
+            "model": worker["model"],
+            "cwd": str(cwd),
+            "task_dir": str(directory),
+            "brief_path": str(directory / "brief.md"),
+            "result_path": str(directory / "result.json"),
+            "agent": agent,
+            "pane_id": pane_id,
+            "tab_id": tab_id,
+            "workspace_id": caller["workspace_id"],
+            "controller_verification": caller["controller_verification"],
+            "argv": launch_args(worker, directory),
+            "backend": {"kind": "legacy", "socket_path": os.environ.get("HERDR_SOCKET_PATH")},
+            "created_at": iso_now(),
+        }
+        state = default_state()
+        state.update(state="starting", submission="not_sent")
+        try:
+            write_json(directory / "task.json", task)
+            save_state(directory, state)
+        except BaseException:
+            # If publication fails, close the unused pane. If close is uncertain,
+            # retain/publish its reservation so a later launch cannot reuse the slot.
+            try:
+                close_pane(pane_id)
+            except HerdrError as exc:
+                state["state"] = "start_failed"
+                state["problem"] = f"task publication failed; unused pane cleanup failed: {exc}"
+                try:
+                    write_json(directory / "task.json", task)
+                    save_state(directory, state)
+                except OSError as recovery_error:
+                    print(f"warning: cannot preserve task {task_id} for pane {pane_id}: "
+                          f"{recovery_error}", file=sys.stderr)
+            else:
+                shutil.rmtree(directory, ignore_errors=True)
+            raise
+        label_worker_pane(pane_id, worker_name, worker["harness"])
 
     def run_object(state_name):
         return {
@@ -1566,85 +1755,102 @@ def _start_task_locked(config, worker_name, brief_text, cwd, skip_if_full, calle
             "task_dir": task["task_dir"],
         }
 
-    start_problem = None
-    startup_deadline = time.monotonic() + START_TIMEOUT_MS / 1000
-    try:
-        label_worker_pane(pane_id, worker_name, worker["harness"])
-        doc = herdr(
-            "agent", "start", agent,
-            "--kind", worker["harness"],
-            "--pane", pane_id,
-            "--timeout", str(START_TIMEOUT_MS),
-            "--", *task["argv"],
-            timeout=150.0,
-        )
-        started_type = (doc.get("result") or {}).get("type")
-        if started_type != "agent_started":
-            start_problem = f"herdr agent start reported {started_type!r}"
-        elif worker["harness"] == "pi":
-            wait_for_pi_session(agent, startup_deadline)
-    except HerdrError as exc:
-        start_problem = str(exc)
-    if start_problem:
-        state["state"] = "start_failed"
-        state["problem"] = start_problem
-        save_state(directory, state)
-        notify(f"agent-workers: {task_id} start_failed", f"worker {worker_name} failed to start in pane {pane_id}: {start_problem}")
-        return run_object("start_failed")
-
-    index = agent_index()
-    entry = (index or {}).get(agent)
-    baseline = entry.get("state_change_seq") if isinstance(entry, dict) else None
-    if isinstance(baseline, bool) or not isinstance(baseline, int) or baseline < 0:
-        state["state"] = "start_failed"
-        state["problem"] = "could not capture a usable agent baseline; prompt was not submitted"
-        save_state(directory, state)
-        notify(f"agent-workers: {task_id} start_failed", state["problem"])
-        return run_object(state["state"])
-    state["baseline_seq"] = baseline
-    state["startup_ready"] = True
-    save_state(directory, state)
+    # Lock released: start harness, wait for readiness, and submit prompt concurrently.
+    state = load_state(directory)
     if state["closed"] or state["state"] == "done":
         return run_object(state["state"])
 
-    pointer = f"New task {task_id}. Read {directory / 'brief.md'} in full and follow it exactly."
-    state["submission"] = "unknown"
-    save_state(directory, state)
     try:
-        doc = herdr(
-            "agent", "prompt", agent, pointer,
-            "--wait", "--until", "working", "--until", "blocked",
-            "--timeout", str(ACK_TIMEOUT_MS),
-            timeout=45.0,
-        )
-        status = ((doc.get("result") or {}).get("agent") or {}).get("agent_status")
-        state["submission"] = "sent"
-        state["native_status"] = status
-        if status == "blocked":
-            state["state"] = "blocked"
-            state["problem"] = "the worker is waiting at a dialog"
-            notify(f"agent-workers: {task_id} blocked", f"worker {worker_name} is waiting at a dialog in pane {pane_id}")
-        else:
-            state["state"] = "running"
-            state["saw_working"] = status == "working"
-    except HerdrError as exc:
-        code = None
-        if isinstance(exc.payload, dict) and isinstance(exc.payload.get("error"), dict):
-            code = exc.payload["error"].get("code")
-        if code == "agent_blocked":
-            state["submission"] = "not_sent"
-            state["state"] = "blocked"
-            state["problem"] = "the worker is waiting at a dialog"
-            notify(f"agent-workers: {task_id} blocked", f"worker {worker_name} is waiting at a dialog in pane {pane_id}")
-        else:
-            state["state"] = "not_started"
-            state["problem"] = f"prompt acknowledgement not observed: {exc}"
-            notify(
-                f"agent-workers: {task_id} not_started",
-                f"worker {worker_name} prompt acknowledgement not observed within {ACK_TIMEOUT_MS // 1000}s: {exc}",
+        start_problem = None
+        startup_deadline = time.monotonic() + START_TIMEOUT_MS / 1000
+        try:
+            doc = herdr(
+                "agent", "start", agent,
+                "--kind", worker["harness"],
+                "--pane", pane_id,
+                "--timeout", str(START_TIMEOUT_MS),
+                "--", *task["argv"],
+                timeout=150.0,
             )
-    save_state(directory, state)
-    return run_object(state["state"])
+            started_type = (doc.get("result") or {}).get("type")
+            if started_type != "agent_started":
+                start_problem = f"herdr agent start reported {started_type!r}"
+            elif worker["harness"] == "pi":
+                wait_for_pi_session(agent, startup_deadline)
+        except HerdrError as exc:
+            start_problem = str(exc)
+        if start_problem:
+            state["state"] = "start_failed"
+            state["problem"] = start_problem
+            save_state(directory, state)
+            if not state["closed"]:
+                notify(f"agent-workers: {task_id} start_failed", f"worker {worker_name} failed to start in pane {pane_id}: {start_problem}")
+            return run_object(state["state"])
+
+        index = agent_index()
+        entry = (index or {}).get(agent)
+        baseline = entry.get("state_change_seq") if isinstance(entry, dict) else None
+        if isinstance(baseline, bool) or not isinstance(baseline, int) or baseline < 0:
+            state["state"] = "start_failed"
+            state["problem"] = "could not capture a usable agent baseline; prompt was not submitted"
+            save_state(directory, state)
+            if not state["closed"]:
+                notify(f"agent-workers: {task_id} start_failed", state["problem"])
+            return run_object(state["state"])
+        state["baseline_seq"] = baseline
+        state["startup_ready"] = True
+        save_state(directory, state)
+        if state["closed"] or state["state"] == "done":
+            return run_object(state["state"])
+
+        pointer = f"New task {task_id}. Read {directory / 'brief.md'} in full and follow it exactly."
+        state["submission"] = "unknown"
+        save_state(directory, state)
+        if state["closed"] or state["state"] == "done":
+            return run_object(state["state"])
+        notice = None
+        try:
+            doc = herdr(
+                "agent", "prompt", agent, pointer,
+                "--wait", "--until", "working", "--until", "blocked",
+                "--timeout", str(ACK_TIMEOUT_MS),
+                timeout=45.0,
+            )
+            status = ((doc.get("result") or {}).get("agent") or {}).get("agent_status")
+            state["submission"] = "sent"
+            state["native_status"] = status
+            if status == "blocked":
+                state["state"] = "blocked"
+                state["problem"] = "the worker is waiting at a dialog"
+                notice = (f"agent-workers: {task_id} blocked",
+                          f"worker {worker_name} is waiting at a dialog in pane {pane_id}")
+            else:
+                state["state"] = "running"
+                state["saw_working"] = status == "working"
+        except HerdrError as exc:
+            code = None
+            if isinstance(exc.payload, dict) and isinstance(exc.payload.get("error"), dict):
+                code = exc.payload["error"].get("code")
+            if code == "agent_blocked":
+                state["submission"] = "not_sent"
+                state["state"] = "blocked"
+                state["problem"] = "the worker is waiting at a dialog"
+                notice = (f"agent-workers: {task_id} blocked",
+                          f"worker {worker_name} is waiting at a dialog in pane {pane_id}")
+            else:
+                state["state"] = "not_started"
+                state["problem"] = f"prompt acknowledgement not observed: {exc}"
+                notice = (
+                    f"agent-workers: {task_id} not_started",
+                    f"worker {worker_name} prompt acknowledgement not observed within {ACK_TIMEOUT_MS // 1000}s: {exc}",
+                )
+        save_state(directory, state)
+        if notice and not state["closed"]:
+            notify(*notice)
+        return run_object(state["state"])
+    except BaseException:
+        abort_starting_state(directory, state, "legacy startup interrupted before submission; inspect the task")
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -1768,7 +1974,7 @@ def evaluate_task(info, agent, config):
 
 def poll_round(infos, previous, config):
     for info in infos:
-        if is_rex(info["task"]) and info["state"]["state"] == "starting":
+        if info["state"]["state"] == "starting":
             info["state"] = load_state(info["dir"])
             if info["state"]["state"] != "starting":
                 info["task"] = load_task(info["dir"], info["task_id"])
@@ -1778,7 +1984,7 @@ def poll_round(infos, previous, config):
     legacy = any(not (is_core(info["task"]) or is_rex(info["task"])) for info in observing.values())
     index = agent_index() if legacy else {}
     if index is None:
-        return False, False
+        return False, False, False
     observations = {}
     for info in observing.values():
         task = info["task"]
@@ -1793,13 +1999,14 @@ def poll_round(infos, previous, config):
                 observations[info["task_id"]] = {"agent_status": terminal["status"], "status_at": terminal["updated_at"],
                                                 "status_owner": terminal["owner"]}
     changed = False
+    problem_changed = False
     for info in infos:
         directory = info["dir"]
         notice = None
         cleanup = False
         with task_state_lock(directory):
             state = load_state(directory)
-            if is_rex(info["task"]) and info["state"]["state"] == "starting" and state["state"] != "starting":
+            if info["state"]["state"] == "starting" and state["state"] != "starting":
                 info["task"] = load_task(directory, info["task_id"])
             info["state"] = state
             old_state = state["state"]
@@ -1842,7 +2049,10 @@ def poll_round(infos, previous, config):
         if previous.get(info["task_id"]) != reported:
             previous[info["task_id"]] = reported
             changed = True
-    return changed, True
+            if (reported in PROBLEM_STATES or reported == "long_running"
+                    or (reported == "done" and not info["state"]["closed"])):
+                problem_changed = True
+    return changed, True, problem_changed
 
 
 def wait_line(info):
@@ -1854,6 +2064,7 @@ def wait_line(info):
     return {
         "task_id": info["task_id"],
         "state": reported,
+        "result_status": parsed.get("status") if parsed else None,
         "closed": bool(state["closed"]),
         "message": state["problem"],
         **progress_fields(state),
@@ -1907,13 +2118,13 @@ def cmd_wait(args):
             if (not info["state"]["closed"] and info["state"]["state"] in SETTLED_STATES
                     and info["state"]["state"] != "done"):
                 info["recheck"] = True
-    wait_until_change(infos, config, args.max_seconds)
+    wait_until_change(infos, config, args.max_seconds, wait_all=args.all)
     for info in infos:
         emit(wait_line(info))
 
 
-def wait_until_change(infos, config, max_seconds):
-    """Poll until a waited task changes state or max_seconds pass; no-op when all are settled."""
+def wait_until_change(infos, config, max_seconds, wait_all=False):
+    """Poll until a waited task changes state (or all settle with wait_all) or max_seconds pass."""
     if all((info["state"]["closed"] or info["state"]["state"] in SETTLED_STATES)
            and not info.get("recheck") for info in infos):
         return
@@ -1921,24 +2132,31 @@ def wait_until_change(infos, config, max_seconds):
     previous = {info["task_id"]: info["state"]["state"] for info in infos}
     failures = 0
     while True:
-        changed, polled = poll_round(infos, previous, config)
+        changed, polled, problem_changed = poll_round(infos, previous, config)
         failures = 0 if polled else failures + 1
         if failures >= 3:
             fail("herdr_error", "could not poll herdr agent list")
-        if changed or (polled and all(info["state"]["closed"] or
-                                     info["state"]["state"] in SETTLED_STATES for info in infos)):
+        all_settled = polled and all(
+            (info["state"]["closed"] or info["state"]["state"] in SETTLED_STATES)
+            and not info.get("recheck")
+            for info in infos
+        )
+        if all_settled or (problem_changed if wait_all else changed):
             return
         now = time.monotonic()
         if deadline is not None and now >= deadline:
             return
-        core_only = all(is_core(info["task"]) for info in infos)
+        any_starting = any(info["state"]["state"] == "starting" and not info["state"]["closed"] for info in infos)
+        core_only = all(is_core(info["task"]) for info in infos) and not any_starting
         interval = 180.0 if core_only else POLL_SECONDS
         gap = interval if deadline is None else min(interval, deadline - now)
         if gap > 0:
             observations = [(info["task"]["backend"], info.get("terminal_observation"))
                             for info in infos if is_core(info["task"]) and not info["state"]["closed"]
-                            and info["state"]["state"] not in SETTLED_STATES]
-            if observations:
+                            and info["state"]["state"] not in SETTLED_STATES
+                            and info["state"]["state"] != "starting"
+                            and info.get("terminal_observation") is not None]
+            if observations and not any_starting:
                 core.wait_changes(observations, gap)
             else:
                 time.sleep(gap)
@@ -2000,14 +2218,17 @@ def cmd_stats(args):
     def worker_row(name):
         if name not in workers:
             spec = config["workers"].get(name)
-            workers[name] = {
+            row = {
                 "configured": spec is not None,
                 **{key: spec.get(key) if spec else None for key in ("harness", "model", "effort", "provider")},
                 "task_count": 0, "reminder_fired": 0, "states": {}, "result_statuses": {},
                 "problem_count": 0, "problem_rate": None, "unclosed_running": 0, "last_use": None,
                 "workspaces": {}, "unknown_workspace_count": 0,
-                "duration_excluded_count": 0, "duration_samples": [],
+                "duration_excluded_count": 0,
             }
+            if not args.no_samples:
+                row["duration_samples"] = []
+            workers[name] = row
             samples[name] = ([], {})
         return workers[name]
 
@@ -2046,7 +2267,7 @@ def cmd_stats(args):
             continue
         state = read_json(directory / "state.json")
         if (not isinstance(state, dict) or not isinstance(state.get("state"), str)
-                or state["state"] not in SETTLED_STATES | {"running"}):
+                or state["state"] not in SETTLED_STATES | {"running", "starting"}):
             if directory.is_dir():
                 invalid.append(task_id)
             continue
@@ -2075,7 +2296,7 @@ def cmd_stats(args):
                 else state["state"])
         row["states"][name] = row["states"].get(name, 0) + 1
         row["problem_count"] += name in SETTLED_STATES - {"done"}
-        row["unclosed_running"] += name == "running"
+        row["unclosed_running"] += name in ("running", "starting")
         last = row["last_use"]
         if last is None or created > stats_timestamp(last):
             row["last_use"] = created.isoformat().replace("+00:00", "Z")
@@ -2095,8 +2316,9 @@ def cmd_stats(args):
             values.append(minutes)
             sources[source] = sources.get(source, 0) + 1
             timings.append(minutes)
-            row["duration_samples"].append({"task_id": task_id, "minutes": minutes,
-                                            "endpoint_source": source})
+            if not args.no_samples:
+                row["duration_samples"].append({"task_id": task_id, "minutes": minutes,
+                                                "endpoint_source": source})
     for name, row in workers.items():
         settled_count = row["problem_count"] + row["states"].get("done", 0)
         row["problem_rate"] = row["problem_count"] / settled_count if settled_count else None
@@ -2125,44 +2347,186 @@ def cmd_stats(args):
 
 
 # ---------------------------------------------------------------------------
+# roles
+# ---------------------------------------------------------------------------
+
+
+def _worker_role_summary(name, workers):
+    spec = workers.get(name)
+    if spec is None:
+        return {"worker": name, "configured": False}
+    summary = {
+        "worker": name,
+        "configured": True,
+        "harness": spec["harness"],
+        "model": spec["model"],
+        "effort": spec["effort"],
+        "description": spec["description"],
+    }
+    if spec.get("provider"):
+        summary["provider"] = spec["provider"]
+    return summary
+
+
+def _resolve_role_entry(role_name, assigned, workers):
+    if isinstance(assigned, str):
+        if not assigned.strip():
+            return {"kind": "invalid", "valid": False, "workers": [], "unconfigured": [],
+                    "error": f"role {role_name!r} has an empty worker name"}
+        unconfigured = [assigned] if assigned not in workers else []
+        error = f"unconfigured worker: {assigned}" if unconfigured else None
+        return {
+            "kind": "single",
+            "valid": not unconfigured,
+            "workers": [_worker_role_summary(assigned, workers)],
+            "unconfigured": unconfigured,
+            "error": error,
+        }
+    if isinstance(assigned, list):
+        if not assigned:
+            return {"kind": "invalid", "valid": False, "workers": [], "unconfigured": [],
+                    "error": f"role {role_name!r} panel list is empty"}
+        if not all(isinstance(item, str) and item.strip() for item in assigned):
+            return {"kind": "invalid", "valid": False, "workers": [], "unconfigured": [],
+                    "error": f"role {role_name!r} panel list must contain non-empty worker name strings"}
+        unconfigured = list(dict.fromkeys(name for name in assigned if name not in workers))
+        error = f"unconfigured workers: {', '.join(unconfigured)}" if unconfigured else None
+        return {
+            "kind": "panel",
+            "valid": not unconfigured,
+            "workers": [_worker_role_summary(name, workers) for name in assigned],
+            "unconfigured": unconfigured,
+            "error": error,
+        }
+    return {
+        "kind": "invalid",
+        "valid": False,
+        "workers": [],
+        "unconfigured": [],
+        "error": f"role {role_name!r} must be a worker name or list of worker names",
+    }
+
+
+def cmd_roles(args):
+    config = load_config()
+    roles_raw = config["roles"]
+    if not isinstance(roles_raw, dict):
+        fail("config_invalid", "[roles] must be a table")
+    workers = config["workers"]
+    resolved = {}
+    issues = []
+    for name, assigned in sorted(roles_raw.items()):
+        entry = _resolve_role_entry(name, assigned, workers)
+        resolved[name] = entry
+        if entry["error"]:
+            issues.append(f"{name}: {entry['error']}")
+
+    if args.role_name is not None:
+        query = args.role_name
+        matched_key = query if query in resolved else None
+        if matched_key is None:
+            normalized = query.strip().lower()
+            token_matches = [
+                key for key in resolved
+                if key.strip().lower() == normalized
+                or normalized in {part.strip().lower() for part in key.split(",") if part.strip()}
+            ]
+            if len(token_matches) == 1:
+                matched_key = token_matches[0]
+            elif len(token_matches) > 1:
+                fail("ambiguous_role",
+                     f"role {query!r} matched multiple configured roles: {', '.join(token_matches)}")
+            else:
+                configured = ", ".join(sorted(resolved)) or "none"
+                fail("unknown_role",
+                     f"no role named {query!r} in {config_path()}; configured roles: {configured}")
+        emit({
+            "role": matched_key,
+            **resolved[matched_key],
+            "max_active_workers": config["max_active_workers"],
+        })
+        return
+
+    worker_summaries = {}
+    for name, spec in sorted(workers.items()):
+        summary = {
+            "harness": spec["harness"],
+            "model": spec["model"],
+            "effort": spec["effort"],
+            "description": spec["description"],
+        }
+        if spec.get("provider"):
+            summary["provider"] = spec["provider"]
+        worker_summaries[name] = summary
+    emit({
+        "config_path": str(config_path()),
+        "max_active_workers": config["max_active_workers"],
+        "roles": resolved,
+        "workers": worker_summaries,
+        "issues": issues,
+    })
+
+
+# ---------------------------------------------------------------------------
 # list and close
 # ---------------------------------------------------------------------------
 
 
 def cmd_list(args):
+    if args.limit is not None and args.limit <= 0:
+        fail("invalid_arguments", "--limit must be a positive integer")
     rows = []
     for task_id in all_task_ids():
+        directory = task_dir(task_id)
+        state = load_state(directory)
+        if args.active and state.get("closed"):
+            continue
         try:
-            task = load_task(task_dir(task_id), task_id)
+            task = load_task(directory, task_id)
         except TaskMissingError:
             continue
         except TaskInvalidError as exc:
             rows.append(("", task_id, {"task_id": task_id, "state": "task_invalid",
                                       "error": "task_invalid", "message": str(exc)}))
             continue
-        state = load_state(task_dir(task_id))
-        rows.append(
-            (
-                str(task.get("created_at") or ""),
-                task_id,
-                {
-                    "task_id": task_id,
-                    "worker": task.get("worker"),
-                    "agent": task.get("agent"),
-                    "pane_id": task.get("pane_id"),
-                    "backend": task.get("backend", {"kind": "legacy"}),
-                    "terminal_id": task["backend"]["terminal"] if is_core(task) else None,
-                    **(rex_location(task["backend"]) if is_rex(task) else {}),
-                    **viewer_fields(task),
-                    **progress_fields(state),
-                    "workspace_id": task.get("workspace_id"),
-                    "state": state["state"],
-                    "closed": bool(state.get("closed")),
-                    "created_at": task.get("created_at"),
-                },
-            )
-        )
+        if args.verbose:
+            row = {
+                "task_id": task_id,
+                "worker": task.get("worker"),
+                "agent": task.get("agent"),
+                "pane_id": task.get("pane_id"),
+                "backend": task.get("backend", {"kind": "legacy"}),
+                "terminal_id": task["backend"]["terminal"] if is_core(task) else None,
+                **(rex_location(task["backend"]) if is_rex(task) else {}),
+                **viewer_fields(task),
+                **progress_fields(state),
+                "workspace_id": task.get("workspace_id"),
+                "state": state["state"],
+                "closed": bool(state.get("closed")),
+                "created_at": task.get("created_at"),
+            }
+        else:
+            row = {
+                "task_id": task_id,
+                "worker": task.get("worker"),
+                "pane_id": task.get("pane_id"),
+                "backend": task.get("backend", {"kind": "legacy"}).get("kind", "legacy"),
+                "state": state["state"],
+                "closed": bool(state.get("closed")),
+                "created_at": task.get("created_at"),
+            }
+            if is_core(task):
+                row["terminal_id"] = task["backend"]["terminal"]
+                row["viewer_verified"] = bool(task.get("viewer_verified"))
+                row["viewer_verification_error"] = task.get("viewer_verification_error")
+            elif is_rex(task):
+                row.update(rex_location(task["backend"]))
+            if state.get("problem"):
+                row["message"] = state["problem"]
+        rows.append((str(task.get("created_at") or ""), task_id, row))
     rows.sort(key=lambda row: (row[0], row[1]))
+    if args.limit is not None:
+        rows = rows[-args.limit:]
     for _, _, row in rows:
         emit(row)
 
@@ -2388,23 +2752,32 @@ def build_parser():
 
     p_run = sub.add_parser("run", help="start a worker and submit one task")
     p_run.add_argument("worker", help="worker name from workers.toml")
-    p_run.add_argument("--brief", required=True, help="path of the brief file for the worker")
+    p_run.add_argument("--brief", required=True, help="path of the brief file for the worker, or '-' to read from stdin")
     p_run.add_argument("--cwd", help="working directory for the worker (default: the current directory)")
     add_caller_arguments(p_run)
     p_run.set_defaults(func=cmd_run)
 
-    p_wait = sub.add_parser("wait", help="wait until at least one waited task changes state")
+    p_wait = sub.add_parser("wait", help="wait until at least one waited task changes state (or all settle with --all)")
     p_wait.add_argument("task_ids", nargs="*", help="tasks to wait on (default: unsettled tasks in the controller's backend family)")
+    p_wait.add_argument("--all", action="store_true", help="wait until all targeted tasks settle/close, returning early on any problem or long_running state")
     p_wait.add_argument("--recheck", action="store_true", help="re-poll named unclosed problem tasks")
     p_wait.add_argument("--max-seconds", type=int, default=None, help="return after at most this many seconds")
     p_wait.set_defaults(func=cmd_wait)
 
-    p_list = sub.add_parser("list", help="print every task as one JSON line, oldest first")
+    p_list = sub.add_parser("list", help="print tasks as JSON lines, oldest first")
+    p_list.add_argument("--active", action="store_true", help="only unclosed tasks")
+    p_list.add_argument("--limit", type=int, default=None, help="only the most recent N tasks")
+    p_list.add_argument("--verbose", action="store_true", help="include full backend binding, viewer, and progress details")
     p_list.set_defaults(func=cmd_list)
+
+    p_roles = sub.add_parser("roles", help="resolve configured roles and worker metadata from workers.toml")
+    p_roles.add_argument("role_name", nargs="?", default=None, help="optional role name or comma-separated role token to resolve")
+    p_roles.set_defaults(func=cmd_roles)
 
     p_stats = sub.add_parser("stats", help="summarize stored worker performance without terminal commands or writes")
     p_stats.add_argument("--workspace", help="only tasks created in this Herdr workspace or Rex session")
     p_stats.add_argument("--days", type=int, help="only tasks created in the last n days")
+    p_stats.add_argument("--no-samples", action="store_true", help="omit per-task duration_samples arrays")
     p_stats.set_defaults(func=cmd_stats)
 
     p_close = sub.add_parser("close", help="close the task's backend terminal and owned viewer")
