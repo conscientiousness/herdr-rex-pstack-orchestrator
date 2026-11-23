@@ -11,6 +11,7 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 
 - **PR-first:** Deliver repo changes via PR on a feature branch. Never merge to `main`/default/shared branch, push directly, or auto-merge without explicit user request (checks/completion/playbooks never grant merge authority). Include this limit in worker briefs.
 - **No native subagents** as controller (workers may use subagents unless restricted by brief).
+- **No silent inline fallback:** Never silently bypass delegation by doing substantial implementation or review inline when `agent-workers` fails or is unconfigured—retry outside a sandbox if blocked, otherwise stop and confirm with the user.
 - **Verify controller location:** Rex -> `Workers` tabs in verified session; Herdr core -> `Workers` viewers in verified workspace; legacy Herdr -> `Workers` tabs (separate tab, preserve focus; headless core outside both). Recover missing/conflicting context first.
 - **No intervention:** Never answer dialogs, send keys/text to panes, or send `/model`.
 - **Wait for `state: "done"`:** Never consume early files; closing an unfinished worker cancels it and fails review gates.
@@ -31,6 +32,8 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 | `close <id>` / `verify-viewer <id>` | Close terminal+viewer; live-verify core viewer/output. |
 | `submit <id>` | Send brief once on retained Rex/core `not_sent` task (approved). |
 | `detect` / `check [<w>...] [--cwd <dir>] [--max-seconds <n>]` | Route/harnesses/Pi status; verify workers (300s cap). |
+
+**Sandboxed controllers (`agy`, `codex`):** `agent-workers` accesses `~/.config/herdr-orchestrator/`, `~/.local/state/herdr-orchestrator/`, and local Rex/Herdr sockets outside the workspace. If a sandboxed call fails with `config_invalid`, permission, or backend socket errors, rerun `agent-workers` outside the sandbox (e.g., `BypassSandbox: true` in `agy`) before assuming setup is missing.
 
 **Caller context:** Pass `--caller-text '<16+ unique visible chars>'` on `run`/`check` to auto-resolve the unique Rex block/Herdr pane (fails closed on 0/>1); add `--caller-block`/`--caller-pane` to disambiguate. Focus/inherited IDs never prove location ([setup.md#caller-context](references/setup.md#caller-context)).
 
