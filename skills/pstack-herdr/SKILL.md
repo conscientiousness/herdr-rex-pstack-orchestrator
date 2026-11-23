@@ -21,7 +21,7 @@ Loaded by installed pstack skills before upstream text. Read [agent-workers](../
 | Upstream | Equivalent |
 |---|---|
 | `Agent`/`Task`/`run_in_background` | `agent-workers run` (`--brief <file\|->`, up to `max_active_workers`), then `wait [--all]`. |
-| `poteto-agent` / `comment-sicko` | Pass absolute path to [poteto-agent](references/agents/poteto-agent.md) or [comment-sicko](references/agents/comment-sicko.md) (+ `../../poteto-mode/SKILL.md` for `poteto-agent`). Instructions only, not worker choice. First-output rules: [herdr-tools.md](references/herdr-tools.md). |
+| `poteto-agent` / `comment-sicko` | Pass absolute path to [poteto-agent](references/agents/poteto-agent.md) or [comment-sicko](references/agents/comment-sicko.md) (+ `../poteto-mode/SKILL.md` for `poteto-agent`). Instructions only, not worker choice. First-output rules: [herdr-tools.md](references/herdr-tools.md). |
 | `generalPurpose` | Selected worker + upstream prompt; no native registration. |
 | `readonly: true` | Scoped reads; writes only to declared reports + `result.json` in task dir. Verify checkout/external state. |
 | Isolated writer | Separate git worktree per concurrent writer (`--cwd`). |
