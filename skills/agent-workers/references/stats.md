@@ -5,11 +5,13 @@ failing, or efficient, whether reminder timing fits, or before changing
 `workers.toml`. It reports facts; the controller interprets them.
 
 ```bash
-python3 <skill-dir>/scripts/agent-workers.py stats [--workspace <id>] [--days <n>]
+python3 <skill-dir>/scripts/agent-workers.py stats [--workspace <id>] [--days <n>] [--no-samples]
 ```
 
 This reads only workers.toml and the task store: no Herdr calls, environment
-requirement, locks, or writes. The default is the whole store because worker
+requirement, locks, or writes. Pass `--no-samples` to omit the per-task
+`duration_samples` array while retaining `duration_minutes` summaries and
+`delivered_duration_estimate`. The default is the whole store because worker
 definitions are global. Workspace scope uses the recorded launch workspace;
 positive integer days filter created_at from a UTC cutoff (inclusive).
 Concurrent controllers can change records during the scan; it is not a snapshot.

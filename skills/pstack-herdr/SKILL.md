@@ -1,66 +1,53 @@
 ---
 name: pstack-herdr
-description: "Run original pstack workflows through configured workers in Rex, Herdr, or headless herdr-core. Loaded by installed pstack workflow skills to map their tools and roles to horch."
+description: "Run original pstack workflows through configured workers in Rex, Herdr, or headless herdr-core. Loaded by installed pstack workflow skills to map their tools and roles to agent-workers."
 ---
 
 # pstack-herdr
 
-Installed workflow skills load this mapping before their original instructions. You can invoke `poteto-mode`, `how`, or `interrogate` directly. The bundle contains selected skills from Lauren Tan's original `cursor/plugins`, their resources, and both adapters. Read [herdr-tools.md](references/herdr-tools.md) and the companion [agent-workers skill](../agent-workers/SKILL.md) before starting. Verify the controller's location before dispatch. Rex workers use `Workers` tabs in the verified session. Herdr core workers use `Workers` viewers in the verified workspace, and legacy Herdr workers use `Workers` tabs there. Follow the companion skill for headless core, caller context, and viewer failures. Tasks keep their recorded backend. Read results after `agent-workers wait` confirms delivery.
-
-This mapping takes precedence over upstream tool names, model defaults, configuration paths, and delegation instructions. User and project instructions retain precedence over both skills. Preserve bundled upstream instructions; report required compatibility changes separately.
+Loaded by installed pstack skills before upstream text. Read [agent-workers](../agent-workers/SKILL.md) for dispatch, waiting, caller context, PR-first delivery, and recovery. Precedence: user/project instructions > this adapter > upstream tools, models, config paths, and delegation. Preserve bundled text; report gaps instead of workarounds.
 
 ## Enter a workflow
 
-1. Use the sibling skills installed with this adapter. The [bundle provenance](references/bundle.json) records their reviewed source revision; a separate source checkout is unnecessary. If a required sibling is missing, report an incomplete installation and follow [bundle installation](references/compatibility.md#install). Do not fetch missing instructions from a different revision during a workflow.
-2. Read the requested sibling `<name>/SKILL.md`, or [poteto-mode](../poteto-mode/SKILL.md) in full for a general goal, then its chosen playbook and required references. Read each applied principle's own file. Follow the called skill's current procedure. In Poteto playbooks, bare `scripts/...` and `playbooks/...` start at the installed `poteto-mode/` directory. Resolve relative Markdown links and `../references/...` from the file containing them. Give workers absolute paths into the same installation.
-3. Keep planning, guidance, task assignment, and quality control in this controller. Expand exploration, design, implementation, and review phases here, then delegate their substantial execution through `agent-workers`. Follow the companion skill's context and waiting rules: keep concise decisions and evidence pointers in the main thread, and reuse an unbounded wait process when the harness supports it. Put this task-specific rule in every worker brief: **Do not delegate, use native subagents, or run a whole playbook. Complete this assignment yourself; report any need for further delegation to the controller.** This overrides the companion skill's general permission for worker subagents.
+1. **Siblings:** Use `../<name>/SKILL.md` ([bundle.json](references/bundle.json)); no upstream checkout needed. Missing sibling -> stop and report incomplete install ([compatibility.md#install](references/compatibility.md#install)); never fetch another revision.
+2. **Read target:** Read `<name>/SKILL.md` (or [poteto-mode](../poteto-mode/SKILL.md), playbook, references, applied principle leaves). In `poteto-mode`, bare `scripts/...` and `playbooks/...` start at `../poteto-mode/`. Resolve relative links from their file; give workers absolute install paths.
+3. **Controller owns workflow:** Plan, assign, QC here; delegate via `agent-workers`. Keep stopping points (Investigation/Forensics -> cited answer; Prototype -> decision + throwaway artifact; Multi-phase plan -> plan) and run required child skills (`no-comments` -> Comment Sicko).
+4. **Mandatory worker brief rule** (overrides `agent-workers`'s worker-subagent allowance):
+   > **Do not delegate, use native subagents, or run a whole playbook. Complete this assignment yourself; report any need for further delegation to the controller.**
+5. **Skip `worker.md` kickoff:** In `poteto-mode` and routed skills, skip upstream `worker.md` kickoff; dispatch via `agent-workers` with role, scope, criteria, and rule 4.
 
-Keep the selected workflow's deliverable and stopping point. Investigation and forensics deliver a cited answer, Prototype delivers a decision and a throwaway artifact, and Multi-phase plan ends at the plan. Use the implementation and PR steps below when the task includes repository changes. The controller also runs required child skills. For the shared `no-comments` trigger, dispatch the bounded Comment Sicko assignment, inspect its report and diff, and decide which findings to act on.
+## Core tool mapping
 
-## Repository and host boundaries
-
-State the exact repositories, hosts, local worktrees and evidence sources authorized for the task in every delegate brief. These boundaries apply to all investigators, synthesizers, implementers and reviewers. Broad-search instructions in an upstream prompt apply only inside that explicit boundary. An empty or thin result never authorizes an owner-wide, global, cross-repository or cross-host search. Record a broader linked lead without fetching it; ask the controller to resolve whether the user authorized that scope.
-
-When a workflow uses a controller-captured repository snapshot, disclose its repository, capture time, completeness and unavailable categories. Delegates query only that local dataset; snapshot investigation is not live worker forge access or proof that the original live-source workflow was completed. Keep a real investigator for an available source even when its captured result is empty.
-
-A native-command audit after a worker finishes can gate whether its output is read or forwarded. Audit failed calls as well as successful ones, quarantine outputs when the boundary is violated, and stop before synthesis. Such a gate detects workflow violations after execution. It does not prevent the worker from using credentials or making requests, and is not a hard sandbox or credential-containment claim.
+| Upstream | Equivalent |
+|---|---|
+| `Agent`/`Task`/`run_in_background` | `agent-workers run` (`--brief <file\|->`, up to `max_active_workers`), then `wait [--all]`. |
+| `poteto-agent` / `comment-sicko` | Pass absolute path to [poteto-agent](references/agents/poteto-agent.md) or [comment-sicko](references/agents/comment-sicko.md) (+ `../../poteto-mode/SKILL.md` for `poteto-agent`). Instructions only, not worker choice. First-output rules: [herdr-tools.md](references/herdr-tools.md). |
+| `generalPurpose` | Selected worker + upstream prompt; no native registration. |
+| `readonly: true` | Scoped reads; writes only to declared reports + `result.json` in task dir. Verify checkout/external state. |
+| Isolated writer | Separate git worktree per concurrent writer (`--cwd`). |
+| `pstack/skills/<n>/`, `cursor-team-kit/skills/<n>/` | Sibling `<n>/` dir; absolute paths for commands/scripts. |
+| `Read`/`Glob`/`Grep`/edits/shell, `AskQuestion`, todos | Harness tools (or chat question / uncommitted checklist). |
+| `setup-pstack`, Cursor rules | `agent-workers` setup + `[roles]` in `workers.toml`. |
+| Shipping / landing / merge | Follow `agent-workers` PR-first rule. |
 
 ## Resolve roles
 
-On Claude Code, Codex, Pi, and Antigravity CLI (`agy`), read `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml`, or `~/.config/herdr-orchestrator/workers.toml` when `XDG_CONFIG_HOME` is unset. Its `[roles]` values name workers from `[workers]`. This is the only role configuration. Upstream `setup-pstack` maps to the companion skill's setup and these TOML roles; do not create a separate model sheet or import one.
+Run `agent-workers roles [<role>]` (`workers.toml`). Ignore Cursor model sheets, `# defaults: 3`, and upstream effort/speed/fallback rules.
 
-Keep upstream role names. A single role names one worker, which may handle several fresh tasks. Panels (`interrogate reviewers`, `arena runners`) are lists with one fresh task per entry, including repeated worker names. `arena cross-judge pool` is also a list, but the controller selects one entry as the skill directs. Configure only roles needed by the selected workflow. Roles may share one worker and model; additional providers or models are optional.
+- **Role-first:** Classify every assignment (incl. ad-hoc). Match a role first (`how explainer`, `feature, refactoring`, `how explorer`/`why investigators` for ad-hoc/Recall); else pick via `description`.
+- **No silent substitution:** Never assume worker names or substitute defaults, `auto`, `inherit-parent`, native subagents, or auto-retries/fallbacks. Missing/invalid role or worker -> setup with user first.
+- **Single vs panel:** Single -> one worker (`"glm"`). Panel (`interrogate reviewers`, `arena runners`) -> list (`["ds", "haiku"]` or `["solo", "solo"]`), one fresh task per entry; same-model != cross-model validation (disclose gaps).
+- **Controller-owned:** `why`, `reflect`, `architect` sketches (large/contested -> Arena).
+- **Brief provenance:** Record matched role (or none), worker, and reason in brief (blinded Eval: private record).
 
-For Arena's cross-judge, select only a configured pool worker from a different vendor than the controller. Never use a same-vendor judge. Treat `claude-fable-*` and `claude-*` as one vendor, following Arena Phase C. When no eligible configured worker can run, skip the judge and disclose it as Arena permits; do not substitute an unconfigured model or change worker definitions. If the controller's model is unknown, follow Arena's unknown-vendor procedure with configured pool entries and disclose that the vendor check did not run.
+## Repository and host boundaries
 
-Use each worker's configured harness, model, and effort. If a needed role or worker is missing, invalid, or names `auto` or `inherit-parent`, complete setup with the user before dispatch. Never substitute upstream model defaults or native subagents.
+- State exact authorized repos, hosts, worktrees, and sources in every brief. Broad-search wording stays inside that boundary; empty/thin results never authorize global/owner-wide/cross-repo/cross-host searches (record leads without fetching; ask controller).
+- **Snapshots:** Disclose repo, capture time, completeness, unavailable categories; keep a real investigator for available sources even if empty; snapshot != live forge access.
+- **Post-run audits:** Auditing native commands (incl. failed calls) quarantines output before synthesis, not a hard sandbox/credential boundary.
 
-Classify the assignment before selecting a worker, including tasks outside a named playbook. Use an applicable configured role first: source mapping fits `how explorer`, root-cause investigation fits `why investigators`, and implementation fits `feature, refactoring`. Using a role does not require running that role's whole playbook. If no configured role fits, select a configured worker using its optional `description` and the assignment's requirements. Worker names are user-defined; never assume a particular name or model family exists. A description explains intended use, not measured capability, price, or a routing override.
+## On-demand references (read only when active)
 
-The current `how` skill dispatches one read-only task through `how explainer`. The controller handles `why` record research, `reflect` transcript review, and `architect` sketches. For a large or contested design, `architect` routes to Arena and its configured roles. Retain existing explorer and investigator roles for applicable ad-hoc work and Recall's per-source tasks. The upstream `# defaults: 3` migration and its effort limits apply to Cursor model rules. Continue using the existing TOML configuration.
-
-Record the matched role (or say no role fits), selected worker, and one concrete reason in the brief. For a blinded Eval, keep routing metadata in the controller's private record. Candidates get the same organic task and neutral paths, and the judge gets sanitized output labels and the hidden rubric. Check which files, skill names and model identities are visible before dispatch. If the available harness or roles break blinding, report that gap. If a seemingly related role does not fit, name the task-specific constraint. When a role applies, use its configured worker or panel. Descriptions and controller model preferences do not authorize replacing that assignment. Do not add automatic retries or model fallbacks.
-
-For formal `interrogate` review, run the entire configured reviewer panel; do not relabel it as an ad-hoc task to omit reviewers. A bounded evidence audit may use one worker and must be reported as that limited audit. Same-model reviewers still use separate processes and independent briefs, but do not provide cross-model validation. If the upstream workflow requires a larger or more diverse panel than configured, disclose that gap and do not claim full workflow compliance; it does not block unrelated work or a clearly identified limited review.
-
-On setup, ask which configured workers should fill each role. For example:
-
-```toml
-[roles]
-"feature, refactoring" = "glm"
-"interrogate reviewers" = ["ds", "haiku"]
-```
-
-For a single configured worker named `solo`, these roles can instead use `"solo"` and `["solo", "solo"]`. Each review entry starts a separate process; this provides two review tasks, not two models.
-
-## Review loop
-
-Use this loop when the workflow calls for an Interrogate review. For a review-only request, start with the captured target in step 2 and finish with verified findings and dropped counts. Implementation and fix steps require an authorized change.
-
-1. State the intended behavior and create a git worktree for the implementing worker. Give it a complete brief, including the base revision, scope, constraints, verification, and output files. Dispatch the configured implementation worker with `agent-workers run <worker> --cwd <worktree> --brief <file>`. Wait for a valid result, inspect its files and diff, and verify the changed behavior.
-2. Read the sibling `interrogate/SKILL.md` and its required Arena phases. State the intent, base revision, target head, and any uncommitted changes in scope. Capture that exact state before dispatch. Create a separate worktree for every `interrogate reviewers` worker and copy the in-scope uncommitted changes into each, including relevant untracked files. Give every adversary the same scope, intent, and source brief. Allow scoped repro and test artifacts only in its own worktree; forbid product fixes, delivery-branch edits, and unauthorized external writes. Start all tasks with separate `agent-workers run` calls before waiting, subject to the configured worker limit. These adversaries need writable worktrees, so do not mark their whole assignments read-only.
-3. Wait until `agent-workers wait` reports `state: "done"` for every adversary. A report already on disk does not finish a `running` task; keep waiting, and never close an unfinished reviewer to pass the gate. Check each delivered `result.json` for `status: "completed"` before accepting its report. A `blocked` or `failed` delivery leaves that seat unresolved. Rerun each finding's exact command against the captured target in an isolated worktree. Keep only a reproduced failure that breaks the stated intent, merge duplicate root causes, and report dropped counts and reasons. Skip Arena's judging and candidate-selection phases as Interrogate directs.
-4. If a finding needs a fix, start a fresh implementation worker on the same branch after the prior writer has finished. Include the original goal, all accepted findings, prior reports, and current revision in its brief. Verify its result and changed behavior. Run the reviewer panel again on the new revision; do not reuse a reviewer session.
-5. Finish when the independent review has no unresolved blocking finding. Report the final revision, verification, reviewer outcomes, and any remaining concerns. If a worker reports a problem, follow `agent-workers` problem handling and keep the review gate open.
-
-Writers must never work concurrently in the same worktree. Interrogate adversaries each need their own worktree for repros; other reviewers may share a checkout only when their briefs are read-only. Every `agent-workers run` starts a fresh process, including each fix and second review. These are instruction boundaries, not an enforced sandbox.
+- [review-and-arena.md](references/workflows/review-and-arena.md) (`interrogate`/`arena`/cross-judge) | [ketchup-and-visuals.md](references/workflows/ketchup-and-visuals.md) (`ketchup`/video/visuals)
+- [git-and-forge.md](references/workflows/git-and-forge.md) (`Babysit`/worktrees/`Shipping`) | [skills-and-reflect.md](references/workflows/skills-and-reflect.md) (`reflect`/skills/`Eval`)
+- [herdr-tools.md](references/herdr-tools.md) (stalled owners/store/MCP/transcripts/gaps) | [compatibility.md](references/compatibility.md) (install/provenance)
