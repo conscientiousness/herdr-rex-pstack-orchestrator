@@ -35,7 +35,7 @@ Loaded by installed pstack skills before upstream text. Read [agent-workers](../
 Run `agent-workers roles [<role>]` (`workers.toml`). Ignore Cursor model sheets, `# defaults: 3`, and upstream effort/speed/fallback rules.
 
 - **Role-first:** Classify every assignment (incl. ad-hoc). Match a role first (`how explainer`, `feature, refactoring`, `how explorer`/`why investigators` for ad-hoc/Recall); else pick via `description`.
-- **No silent substitution:** Never assume worker names or substitute defaults, `auto`, `inherit-parent`, native subagents, or auto-retries/fallbacks. Missing/invalid role or worker -> setup with user first.
+- **No silent substitution or inline fallback:** Never assume worker names, substitute defaults/`auto`/`inherit-parent`/native subagents/auto-retries, or silently do delegated implementation/review inline in the main conversation. On `config_invalid` inside a sandboxed controller (e.g., `agy`), retry `agent-workers` outside the sandbox first; if a role or worker is still missing/invalid, stop and complete setup with the user.
 - **Single vs panel:** Single -> one worker (`"glm"`). Panel (`interrogate reviewers`, `arena runners`) -> list (`["ds", "haiku"]` or `["solo", "solo"]`), one fresh task per entry; same-model != cross-model validation (disclose gaps).
 - **Controller-owned:** `why`, `reflect`, `architect` sketches (large/contested -> Arena).
 - **Brief provenance:** Record matched role (or none), worker, and reason in brief (blinded Eval: private record).

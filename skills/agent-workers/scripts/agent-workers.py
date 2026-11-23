@@ -20,6 +20,7 @@ import rex_backend as rex
 import secrets
 import shlex
 import shutil
+import stat
 import statistics
 import subprocess
 import sys
@@ -486,10 +487,33 @@ def task_capacity(workspace_id, binding=None):
 
 def load_config():
     path = config_path()
-    if not path.is_file():
-        fail("config_invalid", f"workers.toml not found at {path}")
+    try:
+        st = path.stat()
+    except PermissionError:
+        fail(
+            "config_invalid",
+            f"cannot access workers.toml at {path} (permission denied; if running inside a "
+            "terminal sandbox, rerun agent-workers outside the sandbox)",
+        )
+    except FileNotFoundError:
+        fail(
+            "config_invalid",
+            f"workers.toml not found at {path} (if running inside a terminal sandbox that "
+            "restricts access outside the workspace, rerun agent-workers outside the sandbox "
+            "before assuming setup is missing)",
+        )
+    except OSError as exc:
+        fail("config_invalid", f"cannot access {path}: {exc}")
+    if not stat.S_ISREG(st.st_mode):
+        fail("config_invalid", f"workers.toml is not a regular file at {path}")
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except PermissionError:
+        fail(
+            "config_invalid",
+            f"cannot read workers.toml at {path} (permission denied; if running inside a "
+            "terminal sandbox, rerun agent-workers outside the sandbox)",
+        )
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         fail("config_invalid", f"cannot parse {path}: {exc}")
 
