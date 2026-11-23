@@ -6,16 +6,27 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import selectors
 import subprocess
 import tempfile
 import time
 
 
+OPENAI_POLICY = "policy:\n  allow_implicit_invocation: false\n"
+
+
 def file_hashes(root):
     return {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(root.rglob("*"))
             if path.is_file() and "__pycache__" not in path.parts}
+
+
+def is_explicit_only(skill_md):
+    parts = skill_md.read_text().split("---", 2)
+    return len(parts) == 3 and not parts[0].strip() and bool(
+        re.search(r"^disable-model-invocation:\s*true\s*$", parts[1], re.MULTILINE)
+    )
 
 
 def catalog(command, cwd, env, requests, log):
@@ -82,6 +93,12 @@ def main():
     try:
         wanted = file_hashes(source)
         installed = file_hashes(skills)
+        explicit_only = sorted(
+            name for name in expected
+            if (skills / name / "SKILL.md").is_file()
+            and is_explicit_only(skills / name / "SKILL.md")
+        )
+        explicit_only_set = set(explicit_only)
         receipt["checks"].update({
             "installed_catalog": {path.parent.name for path in skills.glob("*/SKILL.md")} == expected,
             "all_files_preserved": installed == wanted,
@@ -89,7 +106,14 @@ def main():
                 (consumer / ".claude/skills" / name / "SKILL.md").is_file()
                 and (consumer / ".claude/skills" / name / "SKILL.md").read_bytes()
                 == (source / name / "SKILL.md").read_bytes() for name in expected),
+            "explicit_only_openai_policy": all(
+                ((skills / name / "agents/openai.yaml").is_file()
+                 and (skills / name / "agents/openai.yaml").read_text() == OPENAI_POLICY)
+                if name in explicit_only_set
+                else not (skills / name / "agents/openai.yaml").exists()
+                for name in expected),
         })
+        receipt["explicit_only_skills"] = explicit_only
         receipt["file_differences"] = sorted(
             path for path in wanted.keys() | installed.keys()
             if wanted.get(path) != installed.get(path))

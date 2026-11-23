@@ -8,11 +8,8 @@
     "deslop"
   ],
   "adapted_skills": [
-    "architect",
     "arena",
     "automate-me",
-    "blast-radius",
-    "create-verification-skill",
     "figure-it-out",
     "how",
     "interrogate",
@@ -20,13 +17,10 @@
     "maintain-verification-skill",
     "no-comments",
     "poteto-mode",
-    "principle-guard-the-context-window",
     "recall",
-    "reflect",
     "show-me-your-work",
     "swarm",
-    "teach",
-    "why"
+    "teach"
   ],
   "excluded_skills": {
     "make-bot-ui": "Requires unavailable Cursor Routines and secret-request tools; no coding workflow depends on it.",
