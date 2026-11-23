@@ -10,7 +10,7 @@
   "skills": [
     {
       "name": "architect",
-      "adapted": true,
+      "adapted": false,
       "source": "pstack/skills/architect/SKILL.md",
       "source_sha256": "aea83d7aa109eb73402182701b14c289844663ad9c8f959fedbef2df66787ce0"
     },
@@ -34,7 +34,7 @@
     },
     {
       "name": "blast-radius",
-      "adapted": true,
+      "adapted": false,
       "source": "pstack/skills/blast-radius/SKILL.md",
       "source_sha256": "4248d03e22365207d2e5f90c9542720f80a88a6b42fd542ef88dde3cf9f9223f"
     },
@@ -58,7 +58,7 @@
     },
     {
       "name": "create-verification-skill",
-      "adapted": true,
+      "adapted": false,
       "source": "pstack/skills/create-verification-skill/SKILL.md",
       "source_sha256": "d353973547bf8ad8977eca645f4cd4feaed0d32f4b43d1448f906b0a76c4d694"
     },
@@ -178,7 +178,7 @@
     },
     {
       "name": "principle-guard-the-context-window",
-      "adapted": true,
+      "adapted": false,
       "source": "pstack/skills/principle-guard-the-context-window/SKILL.md",
       "source_sha256": "af0b9dd70b43628ce4a59a4d332e9d9ad055084e460f430e7a757495c627e81a"
     },
@@ -274,7 +274,7 @@
     },
     {
       "name": "reflect",
-      "adapted": true,
+      "adapted": false,
       "source": "pstack/skills/reflect/SKILL.md",
       "source_sha256": "6f6952f91514dc86257830da93a446c732a1af906f6acd5e5783dc587a29031e"
     },
@@ -334,7 +334,7 @@
     },
     {
       "name": "why",
-      "adapted": true,
+      "adapted": false,
       "source": "pstack/skills/why/SKILL.md",
       "source_sha256": "6b65b3180f1f1bd3b696d7933daf900747410c82931d220a3f57a98addb1c0fd"
     },

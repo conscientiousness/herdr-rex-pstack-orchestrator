@@ -1,141 +1,84 @@
 # Task lifecycle and recovery
 
-`run` and `check` verify the controller's [caller context](setup.md#caller-context)
-before starting workers. Rex and Herdr use separate routes. With explicit task
-IDs, `wait` and `close` use the task's stored route. Use separate waits for Rex
-and Herdr tasks.
+`run` and `check` verify [caller context](setup.md#caller-context) before allocation. With explicit task IDs, `wait` and `close` follow each task's stored backend binding. Wait on Rex and Herdr tasks in separate calls.
 
 ## Rex API boundary
 
-Rex launches the configured interactive harness directly in the verified
-caller's session. `Workers` tabs are separate from the controller's tab, keep up
-to four worker blocks, and preserve focus. The task pins a local Unix endpoint,
-the executable, the host and server instance, the full session/window/block IDs,
-and the owned block label. A changed or unavailable endpoint leaves the task
-unresolved. The Rex route uses Rex for placement, observation, and cleanup.
-Worker labels show the configured worker name and harness. Rex includes a
-unique suffix for block ownership checks.
+Rex launches interactive harnesses directly in `Workers` tabs (separate from controller tab, up to 4 blocks/tab, focus preserved) inside the verified session. Each task pins its local Unix endpoint, executable, host/server instance, full session/window/block IDs, and owned block label (`<worker>` + harness + unique suffix). A changed or unavailable endpoint leaves the task unresolved.
 
-`agent-workers` reads [native program status](https://www.superlogical.com/rex/docs/build/program-status)
-from the owned block. It waits for idle, saves the reporting process and status timestamp, pastes the
-brief pointer once, then waits for the terminal input to settle before pressing
-Enter. It persists the uncertain submission state before writing input. A lost
-response retains the task for inspection and `wait --recheck`. A new native
-turn completion and a valid nonce-bound result are both required for delivery.
-
-If a creation response is lost, `agent-workers` looks for the exact owned label in the
-recorded session. Closure targets only the owned block and verifies its absence.
-The tab closes when its last block is removed.
+`agent-workers` reads [native program status](https://www.superlogical.com/rex/docs/build/program-status) from the owned block: waits for idle, saves process + timestamp baseline, persists uncertain submission state before writing input, pastes the brief pointer once, waits for terminal input to settle, then sends Enter. Lost responses retain the task for inspection and `wait --recheck`. Delivery requires both a new native turn completion and a valid nonce-bound result. Lost creation responses reconcile only by exact owned label in the recorded session; closure targets only the owned block, verifies absence, and removes the tab when empty.
 
 ## Core API boundary
 
-Herdr and headless launches prefer installed `herdr-core`, then a verified `hc`
-alias. Core needs no GUI or `HERDR_ENV`. Herdr with neither executable uses
-legacy execution. Failures stay on the selected route.
+Herdr and headless launches prefer `herdr-core`, then a verified `hc` alias (no GUI or `HERDR_ENV` required); absence of both selects legacy Herdr. Failures stay on the selected route.
 
-`task.json.backend` is a tagged object. `kind: "core"` records `executable`, `session`, `endpoint`, permanent `core_id`, `terminal`, owned `name` and `nonce`, plus only the XDG paths needed for CLI affinity. `kind: "rex"` records the Rex binding above. `kind: "legacy"` uses the original pane/agent path. Records without `backend` use legacy. Optional `viewer` contains separate legacy pane/tab IDs and a pinned legacy socket path.
-
-The core module speaks the official JSON RPC protocol at the pinned local endpoint. Every connection checks core identity with `hello`. Full `terminal.get` facts drive lifecycle evaluation; CLI `ls --json` summaries omit fields and are not equivalent. `events.subscribe` snapshots close the get/subscribe race and wake waits on native changes. Core-only waits have bounded check-ins for reminders; mixed waits retain the legacy polling cadence. No screen text or private transcript determines lifecycle.
-
-Core launches the configured interactive harness without a task. Native OSC 7501 must report idle before a turn baseline is saved and the brief pointer is sent once with an idle guard. Pi, Codex, Claude Code, and Antigravity CLI (`agy`) installed during verification natively reported idle. Missing reporting or a startup trust dialog leaves `start_failed` without sending the task. No hooks, extensions, global configuration or permission changes are added. Codex receives `--no-daemon`; conflicting daemon arguments fail rather than replace user arguments. A task-local exec wrapper clears inherited legacy Herdr and controller session variables before starting the harness.
-
-The same shared result evaluator requires idle/done and a native `turn` greater than the saved baseline, plus the exact nonce-bound result. Core increments `turn` on any departure from working, including blocked/error, so an advanced turn alone cannot deliver. Native error, blocked and finished remain distinct. Initial idle and an early result file cannot deliver.
-
-Creation and send failures reconcile only by owned name/nonce at the same endpoint. Uncertain outcomes retain the reservation and an actionable problem. No automatic resend or second-backend launch occurs. Inspect the terminal and use explicit `wait --recheck` after resolving the problem. It only observes and cannot submit an unsent task.
-
-New task state separates `startup_ready`, `submission` (`not_sent`, `unknown`, `sent`), `execution_observed` and `native_status`. A successful `terminal.send` response records `sent`, independently of whether its `started` field confirms execution. State is persisted as `unknown` before sending, so a lost response or interrupted caller cannot authorize a second submission. Native activity alone cannot prove receipt; a valid nonce-bound task result can resolve an unknown submission. Historical records report null submission and cannot use recovery submission.
-
-Core closure verifies identity, kills only its terminal, observes `finished`, removes it and confirms authoritative absence. An owned viewer is closed separately. `close` returns terminal and viewer cleanup facts; `closed` is true only when both succeed. Connection/namespace failures and identity mismatches never mean already gone. Headless tasks do not invoke legacy Herdr for notifications.
-
-For controllers in Herdr, caller proof and a nonblank `HERDR_SOCKET_PATH` are required before worker allocation. Agent controllers must supply `--caller-pane` and `--caller-text` even if a pane shell is their ancestor; a shared daemon can retain another conversation's ancestry. Ordinary shell automation without agent context may prove its pane through process ancestry. Both paths save a controller verification record before worker launch. Inherited Herdr context still requires verification when `HERDR_ENV` is missing.
-
-Owned attach panes must use `Workers` tabs in the verified caller's live workspace, with up to four panes, and never use the caller's tab or take focus. `viewer_verified` requires re-reading controller process identity, live workspace, viewer pane/tab, exact pinned executable/terminal attach argv, and recognizable visible output from the pinned terminal's passive screen read. Failures expose `viewer_verification_error` and a warning without runtime fallback; report visibility as unconfirmed and keep the existing task. A non-null `viewer` records placement only. Before asking the user to operate the worker window, require fresh success from `verify-viewer <task-id>`. Historical tasks without a controller record fail verification with a recovery explanation.
-
-Viewer creation pins `HERDR_SOCKET_PATH` so later cleanup cannot follow a changed legacy endpoint. An ambiguous placement keeps `viewer_unresolved` and its endpoint in the task record; cleanup cannot release that reservation until the owned viewer outcome is reconciled manually. Do not clear that fact merely because the core terminal was removed.
+- **Task binding (`task.json.backend`):** `kind: "core"` pins `executable`, `session`, `endpoint`, permanent `core_id`, `terminal`, owned `name`/`nonce`, and CLI affinity XDG paths; `kind: "rex"` pins the Rex binding above; `kind: "legacy"` (or absent `backend`) uses the legacy pane/agent path. Optional `viewer` records legacy pane/tab IDs and pinned legacy socket path separately.
+- **Protocol & waits:** Core uses the official JSON-RPC protocol over the pinned local endpoint, checking core identity via `hello` on every connection. Full `terminal.get` facts drive lifecycle (`ls --json` summaries omit fields). `events.subscribe` snapshots close the get/subscribe race; core-only waits use bounded check-ins for reminders, while mixed waits use legacy polling. No screen text or private transcript drives lifecycle.
+- **Startup & submission:** Launches the interactive harness without a task; requires native OSC 7501 idle before saving the turn baseline and sending the brief once with an idle guard (no hooks, extensions, global config, or permission changes added). Codex gets `--no-daemon` (conflicting daemon args fail). A task-local exec wrapper clears inherited legacy Herdr and controller session vars. Missing idle reporting or trust dialogs leave `start_failed` unsent.
+- **State fields:** Tracks `startup_ready`, `submission` (`not_sent`, `unknown`, `sent`), `execution_observed`, and `native_status`. Persists `unknown` before sending so interrupted callers never double-send; native activity alone does not prove receipt, though a valid nonce-bound result resolves `unknown`. Historical records have null `submission` and cannot use `submit`.
+- **Delivery:** Requires native idle/done, `turn` strictly greater than the saved baseline, and a valid nonce-bound `result.json`. Because core increments `turn` on any departure from working (including `blocked`/`error`), an advanced turn alone never delivers, and early result files cannot deliver.
+- **Reconciliation & closure:** Creation/send failures reconcile only by owned name/nonce at the same endpoint; uncertain outcomes retain the reservation without auto-resend or fallback. Closure verifies `core_id`, kills only its terminal, observes `finished`, removes it, confirms absence, and closes any owned viewer separately (`closed: true` only when both succeed). Connection/namespace/identity errors never imply absence. Headless tasks never call legacy Herdr.
+- **Herdr viewers:** Require caller verification + nonblank `HERDR_SOCKET_PATH` before launch (pinned for cleanup). Owned attach panes use separate `Workers` tabs (up to 4 panes, no focus steal). `viewer_verified: true` requires re-reading live controller/workspace, viewer pane/tab, pinned attach argv, and recognizable rendered output; failures emit `viewer_verification_error` + warning while preserving the task. Ambiguous placement sets `viewer_unresolved` (reservation held until reconciled, even after core terminal removal). Historical tasks without a controller record fail `verify-viewer`.
 
 ## Legacy Herdr API boundary
 
-The legacy integration follows the stable Herdr 0.9.5 [agent automation](https://github.com/herdrdev/herdr/blob/v0.9.5/docs/next/website/src/content/docs/agent-automation.mdx) and [socket API guidance](https://github.com/herdrdev/herdr/blob/v0.9.5/docs/next/website/src/content/docs/socket-api.mdx): use CLI wrappers for ordinary orchestration, response IDs for layout, `agent start` for readiness, and `agent prompt --wait` for acknowledgement. A prompt timeout does not prove no input was sent. `--no-focus` and separate worker tabs implement this project's layout policy.
+Follows Herdr 0.9.5 [agent automation](https://github.com/herdrdev/herdr/blob/v0.9.5/docs/next/website/src/content/docs/agent-automation.mdx) and [socket API guidance](https://github.com/herdrdev/herdr/blob/v0.9.5/docs/next/website/src/content/docs/socket-api.mdx): CLI wrappers, response IDs, `agent start`, `agent prompt --wait` (timeouts do not prove input was unsent), `--no-focus`, and separate `Workers` tabs. A single 2-second `agent list` poll covers all waited tasks and reminder timers without invoking a model. Use `--source visible` for passive reads (recent-history reads can send mouse-scroll input to full-screen TUIs) and Herdr agent metadata rather than private harness session files.
 
-Herdr supplies agent lifecycle state; `agent-workers` adds task identity, file delivery, review gates, and cleanup. Its single two-second `agent list` poll covers all waited tasks and the notification timer without invoking a model. Herdr's event-driven `agent wait` targets one agent; replacing this loop with subscriptions would also require reconnect and lost-event reconciliation. The current loop is an orchestration choice, not a missing Herdr wait capability.
-
-Use `visible` reads for passive inspection. Recent-history reads can send mouse-scroll input to an idle full-screen agent before restoring its viewport. Routine status checks should use Herdr's agent metadata, not parse a harness's private session files. The Pi readiness guard below also reads Herdr metadata.
+For legacy Pi workers, `agent-workers` also requires the Herdr Pi integration to report an idle/done session within the startup budget (guarding against Herdr 0.9.3 misclassifying Pi 1.1.0's trust dialog as `interactive_ready`). Without it, startup returns `start_failed` unsent and retains the pane.
 
 ## Delivery, outcome, and review verdict
 
-`agent-workers wait` reports the transport state; `result.json` reports the worker's outcome. The controller verifies that outcome separately.
+`agent-workers wait` reports transport state; `result.json` reports worker outcome; the controller verifies work independently.
 
 | Task state | Result status | Meaning and next action |
 |---|---|---|
-| `running` / `long_running` | Any file on disk | Keep waiting. The worker may still change it. |
-| `done` | `completed` | Delivery finished; verify the work and any review verdict. |
-| `done` | `failed` | Delivery finished; the worker reports failure. Read its report and tell the user. |
-| `done` | `blocked` | Delivery finished; relay `question`, then start a fresh task with the answer. |
+| `running` / `long_running` | Any file on disk | Keep waiting; worker may still update it. |
+| `done` | `completed` | Delivered; independently verify diff/behavior/verdict. |
+| `done` | `failed` | Delivered; worker reports failure. Read report and inform user. |
+| `done` | `blocked` | Delivered; relay `question` to user, then launch fresh task with answer. |
 
-The existing `done` value is kept for compatibility with v0.1.0 clients and stored task records. It means a finished turn with a valid result, not a successful implementation or a passing review. `agent-workers check` reports `ok: true` only for `done`, a valid result with `status: "completed"`, and confirmed pane closure.
+`done` means finished turn + valid result (kept for v0.1.0 compatibility), not verified success. `check` returns `ok: true` only for `done` + `status: "completed"` + confirmed closure.
 
-Each `agent-workers wait` line has `task_id`, `state`, `summary`, `result_path`, `files`, `question`, `closed`, `message`, readiness/submission/execution facts, and viewer verification facts. Until the task is `done` with a valid result, `summary` and `question` are null and `files` is empty. `result_path` always names the expected location; it does not signal completion. Result file paths in `files` are relative to the directory of `result_path`.
+Each `wait` line includes `task_id`, `state`, `result_status` (`"completed"` | `"blocked"` | `"failed"` | null; non-null only when `state == "done"` and `result.json` is valid), `summary`, `result_path`, `files`, `question`, `closed`, `message`, readiness/submission/execution fields, and viewer verification facts. Before `done`, `result_status`/`summary`/`question` are null and `files` is empty (`result_path` always names the target path; `files` entries are relative to its directory). Passing `wait --all` waits until all targeted tasks settle and close, while still returning immediately if any task transitions to a problem state (`blocked`, `error`, `exited`, `start_failed`, `not_started`, `result_missing`, `result_invalid`), `long_running`, or `done` with `closed: false`.
 
-A valid result has exactly six keys: matching `task_id` and `nonce`, `status` (`completed`, `failed`, or `blocked`), a string `summary`, a list of string `files`, and `question` (nonempty string when blocked, otherwise null).
-
-For legacy tasks, Herdr must also report that the turn ended: an idle/done agent with `completion_seq` newer than the pre-prompt baseline, or the observed working-to-idle fallback when no completion sequence is available. An idle agent alone does not establish completion.
-
-Before submitting a legacy Pi task, `agent-workers` additionally waits for the installed Herdr Pi integration to report an idle/done session within the startup budget. Herdr 0.9.3's `interactive_ready` alone can describe Pi 1.1.0's trust dialog. Without the session signal, startup returns `start_failed`, retains the pane, and sends no task prompt. Install the integration and let the user resolve any dialog before starting a fresh task.
+A valid `result.json` has exactly six keys: matching `task_id` and `nonce`, `status` (`completed` | `failed` | `blocked`), string `summary`, list of string `files`, and `question` (nonempty string iff `blocked`, else null). Legacy tasks additionally require turn-end evidence (`completion_seq` newer than baseline, or observed working-to-idle fallback).
 
 ## States
 
-
-| State | Meaning | What to do |
+| State | Meaning | Action |
 |---|---|---|
-| `starting` | Rex worker placement or readiness is in progress. | Wait for `run` or `check` to return. If startup was interrupted, inspect the reserved task. |
-| `running` | The worker is working. | Wait again. |
-| `long_running` | The task passed `notify_after_minutes`. Reported once. | Tell the user, then wait again. |
-| `done` | The turn ended with a valid `result.json`. | Read the result and check `closed` / `message`. |
-| `start_failed` | The harness did not start, usually a dialog. | See "Problems". |
-| `not_started` | The prompt wait did not observe acknowledgement. The task may still be running. | See "Problems". |
-| `blocked` | The worker waits at a dialog or permission prompt. | See "Problems". |
-| `exited` | The worker process or terminal ended before delivery. | See "Problems". |
-| `error` | The worker reported a native error. | Inspect without resending or changing backend. |
-| `result_missing` | The turn ended without a valid `result.json`, often after a provider API error. | See "Problems". |
-| `result_invalid` | `result.json` does not parse or its `task_id` or `nonce` is wrong. | See "Problems". |
+| `starting` | Placement or readiness in progress. | Wait for `run`/`check`; if interrupted, inspect reserved task. |
+| `running` | Worker is executing. | Keep waiting. |
+| `long_running` | Exceeded `notify_after_minutes` (emitted once). | Tell user and keep waiting. |
+| `done` | Turn ended with valid `result.json`. | Inspect result and `closed`/`message`. |
+| `start_failed` | Harness failed to reach idle (usually a dialog). | Follow [Problems](../SKILL.md#problems). |
+| `not_started` | Prompt acknowledgement not observed; may still be running. | Follow [Problems](../SKILL.md#problems). |
+| `blocked` | Waiting at dialog or permission prompt. | Follow [Problems](../SKILL.md#problems). |
+| `exited` | Process/terminal ended before delivery. | Follow [Problems](../SKILL.md#problems). |
+| `error` | Native error reported. | Inspect without resending or switching backend. |
+| `result_missing` | Turn ended without valid `result.json` (often API error). | Follow [Problems](../SKILL.md#problems). |
+| `result_invalid` | Malformed `result.json` or wrong `task_id`/`nonce`. | Follow [Problems](../SKILL.md#problems). |
 
 ## Problem recovery
 
-Follow the [controller's problem procedure](../SKILL.md#problems) before cleanup. Ordinary waits return stored problem states without polling them again.
+Follow [Problems](../SKILL.md#problems) before cleanup. Normal `wait` returns stored problem states immediately without re-polling.
 
-Use `agent-workers list` to find the binding and inspect the recorded terminal:
+Use `agent-workers list --verbose` (or `--active` / `--limit <n>` for filtered listings; default `list` is compact) to locate the full stored backend binding, then inspect the recorded terminal:
 
-- For Rex, use the recorded executable with `--autostart=false -S <endpoint>` and
-  `block call -s <session> -b <block> program_status`. For terminal output, use
-  `capture -s <session> -b <block> --trim` against that endpoint.
-- For core, use the recorded executable, `HC_SESSION`, and `HC_SOCKET`, then
-  `get <terminal_id>` or `read <terminal_id> --lines 0` for terminal output.
-- For legacy Herdr, use the original server with `herdr agent get <agent-name>` or
-  `herdr pane read <pane_id> --source visible` for terminal output.
+- **Rex:** `<executable> --autostart=false -S <endpoint> block call -s <session> -b <block> program_status` and `... capture -s <session> -b <block> --trim`.
+- **Core:** with recorded executable, `HC_SESSION`, and `HC_SOCKET`, run `get <terminal_id>` or `read <terminal_id> --lines 0`.
+- **Legacy Herdr:** on the original server, run `herdr agent get <agent-name>` or `herdr pane read <pane_id> --source visible`.
 
-If inspection shows a previously unacknowledged task started, or the user cleared a dialog, use `agent-workers wait <task-id> --recheck`. Apply the same background or bounded waiting method as a normal wait. Recheck requires explicit task IDs, never submits or resends a prompt, and never restarts a process. `submission: not_sent` remains `start_failed` even when the native program later reports idle or working. Closed and completed tasks are not reopened. An exited process's result stays on disk for inspection; without turn-completion evidence it is not promoted to `done`.
+Recovery commands:
+- **`agent-workers wait <task-id> --recheck`:** Re-observes explicit task IDs (e.g., after user clears a dialog or an unacknowledged task starts). Never submits, resends, restarts, or reopens closed/completed tasks; `submission: "not_sent"` stays `start_failed`. Exited task results remain on disk for inspection and are never promoted to `done` without turn-completion evidence.
+- **`agent-workers submit <task-id>`:** After user resolves readiness and approves recovery, sends the original brief once on an unclosed Rex/core task with `submission: "not_sent"`, rechecking native idle and saving a new baseline. Rejects `sent`, `unknown`, historical, closed, or completed tasks with `submission_unsafe`. Legacy recovery requires inspection, closure, and a fresh task. Require fresh `verify-viewer` before asking the user to interact with a core window.
+- **`agent-workers close <task-id>`:** Retry whenever `closed: false` (slot stays occupied until confirmed). Closing an unfinished worker cancels it. Only explicit not-found responses prove a legacy pane is already gone; other errors leave cleanup unresolved.
 
-After the user resolves readiness and chooses recovery, `agent-workers submit <task-id>` sends the original brief once on an unclosed Rex block or core terminal recorded as `not_sent`. It rechecks native idle and records a new baseline. `sent`, `unknown`, historical, closed, and completed tasks fail with `submission_unsafe`. Legacy startup recovery requires inspection, closure, and a fresh task. Before requesting user interaction with a core worker window, require a fresh successful `verify-viewer` result.
-
-When `done` has `closed: false`, read `message` and retry `agent-workers close <task-id>`. The worker slot remains occupied until closure is confirmed. Closing an unfinished worker cancels it and cannot satisfy a completion or review gate.
-
-A legacy Herdr placement response can be lost before the worker starts, leaving an empty pane. Inspect the original server before removing it. `list` reports `task_invalid` records alongside healthy history. Each unclosed invalid record reserves one slot in every scope because its owner and terminal are unknown. A full `run` returns `worker_limit` with the invalid IDs. `check` keeps polling its started tasks and starts pending workers as slots free. Affected `not_checked` results also name the invalid IDs. A wait without IDs skips invalid records. Targeted `wait` and `close` return `task_invalid`. Inspect the original runtime before removing an invalid task directory by hand.
+**Invalid records & lost placements:** A lost legacy placement can leave an empty pane—inspect the original server before removal. `list` shows `task_invalid` records alongside healthy history; each unclosed invalid record reserves one slot in **every** scope (since owner/terminal is unknown). Full `run` returns `worker_limit` naming invalid IDs; `wait` without IDs skips them; targeted `wait`/`close` returns `task_invalid`. Inspect the original runtime before removing an invalid task directory manually.
 
 ## Task store and concurrency
 
-Rex counts unclosed tasks on the same server and session. Known Rex and Herdr
-tasks occupy separate reservations.
-
-Core admission counts all unclosed tasks with the same permanent core ID in this store, plus legacy reservations in the GUI caller's workspace when present. This conservative core quota is session-wide, including headless controllers. Core addresses never enter the older-record legacy pane-membership heuristic. Invalid unclosed records reserve capacity in every scope.
-
-For legacy launches, processes sharing a task store serialize startup to enforce `max_active_workers` independently for each workspace; workers execute concurrently after launch. Controllers in the same workspace share its slots when they use the same state directory. The shared startup lock prevents two controllers from claiming the last slot together; it does not turn workspace quotas into a total limit. Short per-task transactions prevent a concurrent wait from overwriting confirmed closure. JSON updates replace files atomically.
-
-New task records retain the live caller's `workspace_id` at launch. An unclosed task keeps occupying that workspace's slot, including after a manual pane move or a failed startup. Older records without `workspace_id` count when their recorded pane is present in that workspace's live pane list. A missing legacy pane cannot reserve a slot in another workspace; pane-list failures leave admission unresolved instead of assuming capacity is free. No configuration migration is required.
-
-Core records retain endpoint and core identity, so a store can hold tasks from different core sessions. Legacy records still require one legacy Herdr server per store. Scope legacy use of each task store to one Herdr server. Pane IDs and agent names are server-local, and legacy task records do not retain their originating socket. If using multiple named sessions or machines, give each a separate `XDG_STATE_HOME` and operate its tasks only through that server. Cross-server cleanup with a shared store is unsupported and can target an unrelated pane with the same ID.
-
-A Pi worker waiting for its session signal can use the full 90-second startup budget while holding the startup lock. Install the integration and resolve startup dialogs before checking several workers; `check` stops launching new checks when its overall budget expires.
-
-`agent-workers close` resolves the recorded pane directly, even from another workspace. Only explicit pane/tab/workspace-not-found responses establish that it is already gone; other Herdr errors leave cleanup unresolved.
-
-`check` batches at its caller's `max_active_workers` limit and deduplicates repeated worker names. Each row has `worker`, `task_id`, `state`, `ok`, `pane_id`, `seconds`, and `message`. Workers that cannot start before the wait cap or have no free slot are `not_checked`, with null task, pane, and duration. Invalid reservations do not abort a batch. Started tasks are still polled and pending workers launch as slots free. Unfinished or problem tasks retain their terminals. Inspect `message` before acting.
+- **Reservation scopes:** Rex counts unclosed tasks per server+session. Core counts all unclosed tasks with the same permanent `core_id` in this store plus legacy reservations in the GUI caller's workspace (session-wide, including headless). Legacy counts per `workspace_id` (older records without `workspace_id` count if present in live pane list; pane-list errors leave admission unresolved). Invalid unclosed records count in every scope.
+- **Locking & atomicity:** Controllers sharing a state store hold `.start.lock` only during capacity check, task reservation (`state: "starting"`, `submission: "not_sent"`), and terminal/pane placement, releasing it before readiness wait, `verify-viewer`, and prompt submission so parallel `run` launches proceed concurrently across Rex, core, and legacy. Short per-task locks prevent concurrent waits from overwriting closure, and JSON updates replace files atomically.
+- **Store isolation:** Core and Rex records pin endpoints/identities, so one store supports multiple sessions. Legacy records do not store socket paths—scope each task store to **one** legacy Herdr server (give separate servers/machines separate `XDG_STATE_HOME` to avoid closing unrelated panes with matching IDs).
+- **`check` batching:** Deduplicates worker names and batches up to `max_active_workers`. Rows include `worker`, `task_id`, `state`, `ok`, `pane_id`, `seconds`, and `message`. Unstarted workers return `not_checked` (null task/pane/duration, naming any blocking invalid IDs). Unfinished/problem tasks keep their terminals open for inspection.

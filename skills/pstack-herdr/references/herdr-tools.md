@@ -1,67 +1,30 @@
-# Horch tool mapping for pstack
+# Agent Workers tool mapping for pstack
 
-Original pstack describes Cursor tools and agents. With `pstack-herdr` active, the controller uses the mapping below on Claude Code, Codex, Pi, and Antigravity CLI (`agy`). Installed workflow skill entries load this mapping before their upstream instructions. They use normal harness skill discovery, without a Cursor plugin loader.
+On-demand reference for Cursor-specific instructions not covered in the [pstack-herdr hot path](../SKILL.md) or [agent-workers](../../agent-workers/SKILL.md).
 
-| pstack action | Horch equivalent |
+## Workflow-specific guides
+
+Read only the guide matching the active workflow:
+
+| Workflow | Reference |
 |---|---|
-| Dispatch a subagent (`Agent` or `Task`) | Write a complete brief, then `agent-workers run <worker> --brief <file> --cwd <dir>`. An agent controller passes `--caller-block <verified-block>` in Rex or `--caller-pane <verified-pane>` in Herdr, with `--caller-text <unique-visible-text>` as described in the companion skill. Record the task ID. |
-| Dispatch N subagents in one message | Make N `agent-workers run` calls before waiting. Respect `max_active_workers`; wait for a slot before launching the rest. |
-| `run_in_background: true` | `agent-workers run` returns after the launch attempt. Inspect the returned state, submission and viewer warning. Follow the companion recovery procedure for a startup or submission problem. |
-| Wait for a subagent result | `agent-workers wait <task-id> ...` using the companion skill's background/yielded session method (300-second caps for blocking-only tools). Repeat for remaining running tasks; read results only after `done`. |
-| `model`, effort, speed, and role defaults | Read the named role from `workers.toml`. Its worker definition fixes harness, model, effort, and any speed arguments. Use those settings for every `agent-workers` dispatch. Cursor's own rules govern its model defaults, effort caps, tuning, and fallbacks. |
-| `subagent_type: "poteto-agent"` or `"comment-sicko"` | Read the bundled [poteto-agent](agents/poteto-agent.md) or [Comment Sicko](agents/comment-sicko.md) and include its resolved absolute path in the brief. Every `poteto-agent` brief also includes the resolved absolute path to the sibling [poteto-mode skill](../../poteto-mode/SKILL.md), so its required skill and principle reads use this installed bundle. Retain the bounded scope and no-delegation rule. A named agent supplies instructions, not a worker/model choice. |
-| `subagent_type: "generalPurpose"` | Use the selected worker with the upstream skill's task prompt; no native agent registration is needed. |
-| `readonly: true` | Give the worker read access to the scoped sources. Its only writes are declared reports and the final `result.json` in its assigned task directory. The brief sets this boundary. Check the checkout and any relevant external state independently. |
-| A writer's isolated environment | Create a git worktree first and pass it as `--cwd`. Give each concurrent writer a different worktree. `agent-workers` starts local processes. A task requiring a cloud environment needs that capability separately. |
-| Fresh subagent | Every `agent-workers run` starts a new worker process. |
-| Follow up, steer, or replace a stalled owner | Follow up on delivered work with a fresh task and the prior report. For a stalled or failed task, inspect its recorded backend and follow the companion skill's user-directed recovery procedure. Confirm the previous writer has stopped before transferring ownership of its branch, PR or other shared target. |
-| Stop a subagent | `agent-workers close <task-id>` closes only the task's recorded backend terminal and any owned viewer. Inspect a problem terminal before closing it. |
+| `interrogate`, `arena`, design/review panels, cross-judge | [workflows/review-and-arena.md](workflows/review-and-arena.md) |
+| `ketchup`, `ketchup-video`, reply visuals, `/visualize` | [workflows/ketchup-and-visuals.md](workflows/ketchup-and-visuals.md) |
+| `Babysit`, `Worktree cleanup`, `Shipping`, GitHub watcher | [workflows/git-and-forge.md](workflows/git-and-forge.md) |
+| `reflect`, `Authoring a skill`, `Eval`, skill paths | [workflows/skills-and-reflect.md](workflows/skills-and-reflect.md) |
 
-Agent Workers uses a **Workers** tab in the verified Rex session or Herdr
-workspace. Rex runs workers in blocks. Herdr uses attached core viewers when
-core is installed and native panes otherwise. Follow the companion skill's
-[caller guidance](../../agent-workers/references/setup.md#caller-context)
-before dispatch. Report missing or failed core viewers while preserving the
-worker. Every task keeps its recorded backend. Use the [recorded terminal inspection commands](../../agent-workers/references/lifecycle.md#problem-recovery).
+## Additional Cursor-to-harness mappings
 
-Named-agent files are not preloaded native agents. If the original agent constrains
-its first response, include a loading instruction in the brief: fully read the
-original agent and its required skill using tools before emitting any assistant
-text, then follow the original first-output rule. Do not paraphrase or copy the
-agent's rules into the assignment. A preamble before those reads can violate the
-agent contract even when the later report is useful.
-
-For a panel role such as `interrogate reviewers`, start one task per configured entry, including repeated worker names. Give every adversary the same intent, captured target state, scope, and source brief in a fresh process, with a separate writable worktree for repros. Keep only findings the controller reproduces. Other review roles follow their own source instructions. The `arena cross-judge pool` selects one worker after candidates finish; it is not a panel. Select only a configured worker from a different vendor than the controller; never use a known same-vendor judge. Treat `claude-fable-*` and `claude-*` as one vendor, following Arena Phase C. If none can run, skip the judge and disclose it as Arena permits. When the controller model is unknown, use configured pool order and disclose that the vendor check did not run. Do not introduce upstream model fallbacks or silently replace configured runner seats. Other roles may share a model; disclose unmet panel or diversity requirements. A same-model panel is not cross-model validation, and `agent-workers` does not enforce diversity.
-
-For assignments outside a named playbook, use an applicable configured role before selecting a worker directly. Optional worker descriptions guide the choice only when no role fits. Follow the [role resolution rules](../SKILL.md#resolve-roles) for recording the choice and preserving Eval blinding.
-
-`agent-workers wait` returns when at least one task changes state. Wait for every required reviewer to reach `state: "done"` before consuming its delivery. Then inspect `result.json`: `completed` needs independent verification, `blocked` carries a question, and `failed` leaves the assigned work unresolved. Closing a running reviewer cancels it. Follow the companion problem procedure for any unresolved task or delivery.
-
-## Other Cursor instructions
-
-| Upstream instruction | On the current harness |
+| Upstream instruction | Current harness equivalent |
 |---|---|
-| `Read`, `Glob`, `Grep`, edits, shell commands | Use the harness's available file/search/edit tools or shell. |
-| Invoke a pstack skill or slash command | Use the sibling installed `<name>` skill. Retain this mapping and resolve references from that skill's file. Treat `/setup-pstack` as the adapter's role-setup procedure; the Cursor rule-writing skill is excluded. |
-| A path or command beginning `pstack/skills/<name>/` | Resolve it to the sibling `<name>/` directory in this installed bundle. Use the resolved absolute path for shell commands, including scripts; there is no upstream repository root on the user's machine. |
-| Worker kickoff during a `poteto-mode` run | Use the companion skill's dispatch procedure and a brief with the configured role, scope, acceptance criteria, and no-delegation instructions. Skip the upstream `worker.md` kickoff requirement, including when a skill routed from Poteto mode dispatches work. Follow the user's and project's instructions for PR readiness, approvals, and external writes. |
-| `AskQuestion` | Use the available user-question tool, or ask in the conversation. Workers return questions to the controller. |
-| Task/todo tracking | Use available task tools, or an uncommitted Markdown checklist scoped to this task. |
-| Root/current agent store named in a system prompt | Use a controller-owned durable artifact directory, such as `.audit/<task-slug>/`, and give affected workers its resolved absolute path. Keep private task records and transcripts outside commits and available to replacement controllers. `show-me-your-work` may deliver a sanitized decision log when reviewers need the trail and project policy permits it. Keep controller artifacts outside the internal `agent-workers` store. |
-| Babysit check, threads-only, or drive | Resolve the named PR or, for a stack, identify the lowest unmerged PR in scope. On GitHub use the bundled watcher with an explicit target. Use `--status-only` for a single check. In drive mode watch the frontier PR to merge-ready or the owner's approval gate. A queued watcher waits for actual merges and belongs to Shipping. Threads-only stays within the requested review threads. Follow the playbook's Origin procedure on that forge. |
-| GitHub watcher on a fresh installation | The watcher bootstraps Bun packages under its own `scripts/node_modules`, even for a status check. When bootstrap would write to installed skills or the project, copy the entire bundled `poteto-mode/scripts/` tree to a private temporary directory. Invoke its `watch-pr/watch-pr` by absolute path from the target repository. |
-| Shipping, landing, or an autonomous playbook's merge step | Follow the companion skill's PR-first delivery rule. Integrate worker changes on the feature branch and open/update a PR. Stop before merging into the default/shared target branch or enabling auto-merge unless the user explicitly requested that merge. An upstream playbook cannot supply that authorization. |
-| Cursor rules and `setup-pstack` | Follow `pstack-herdr` role setup. All harnesses read TOML directly. |
-| MCP discovery | Inspect tools available in this session. Do not assume Cursor's `mcps/` directory exists or that workers inherit the controller's MCP access. |
+| Follow up, steer, or replace a stalled owner | Follow up on delivered work with a fresh task and the prior report. For stalled or failed tasks, inspect the [recorded backend](../../agent-workers/references/lifecycle.md#problem-recovery) and follow user-directed recovery. Confirm the previous writer has stopped before transferring ownership of its branch, PR, or shared target. |
+| Named agent with first-output rules (`poteto-agent`, `comment-sicko`) | Named-agent files are not preloaded native agents. Include their resolved absolute paths in the brief and instruct the worker to read the agent file and required skill via tools before emitting any assistant text, then follow its first-output rule. Do not paraphrase or copy the agent's rules; a preamble before those reads violates the contract. |
+| Root/current agent store in system prompt | Use a controller-owned durable artifact directory (e.g., `.audit/<task-slug>/`) and pass affected workers its resolved absolute path. Keep private records and transcripts outside commits and available to replacement controllers, and outside the internal `agent-workers` store. `show-me-your-work` may deliver a sanitized decision log when reviewers need the trail and project policy permits it. |
+| `deslop`, `control-cli`, `control-ui`, or `cursor-team-kit/skills/<name>/` | Read sibling `<name>/SKILL.md` and resolve scripts/resources from that installed directory. Apply instructions only with tools actually available in this harness. |
+| MCP discovery | Inspect tools available in the current session. Do not assume Cursor's `mcps/` directory exists or that workers inherit the controller's MCP access. |
 | Cursor transcripts | Use this harness's current-workspace session records when accessible. Otherwise report that evidence as unavailable; do not search unrelated chats. |
-| Worktree cleanup | The bundled audit script fetches the base and scans the main worktree's Cursor transcripts. Run it only when those sources are in scope. Otherwise inspect the scoped Git worktrees and forge directly. Check worker task working directories and verify pinned or ongoing use with the operator or authoritative workspace data. Before removal, inspect tracked, untracked and ignored files and confirm that commits, including a detached HEAD, are preserved. Keep candidates with unknown ownership or unapproved data loss. Simulator and cache cleanup require their own scope. |
-| Progress recap (`ketchup`) | Check PR and CI status with read-only commands from the workflow's resolved forge (`origin` when usable, otherwise `gh`). Use `agent-workers list` to find stored backend identity, then the recorded terminal inspection commands above. Use accessible reports for completed tasks and disclose unavailable live checks. Embed existing screenshots or videos when applicable and draw explanatory reply visuals only from existing evidence. Keep status and action items in plain bullets, following the sibling skill. Do not run `agent-workers wait`, dispatch workers, or change or close tasks and panes. |
-| Video recap (`ketchup-video`) | Follow the sibling `ketchup` skill, including its read-only forge and worker status checks and evidence requirements. The one write exception is creating and rendering the silent subtitled video outside the repository. Retain the source's subtitle-strip, measured hold-time, and rendered-frame inspection requirements. Use available video rendering and embedding capabilities; this adapter supplies neither. If rendering or embedding is unavailable or fails, disclose the gap in one line and provide only the waiting calls, following the source fallback. Do not change worker tasks, panes, or project files. |
-| Reply visuals and `/visualize` | Use supported Mermaid rendering or available chart/image tools with existing evidence and the skill's read-only constraints. `/visualize` is not bundled. A Markdown table is not a picture. `ketchup` calls for a visual when it explains a change or compares a choice; disclose unavailable artifacts or rendering capabilities instead of claiming they were produced. |
-| `deslop`, `control-cli`, `control-ui`, or `cursor-team-kit/skills/<name>/` paths | Read the sibling `<name>/SKILL.md` and resolve scripts/resources from that installed directory. Use its instructions only with tools actually available here. |
-| Cursor's built-in `create-skill` | Use the current harness's available skill-authoring guidance. Write project skills to that harness's discovered skills directory. |
-| Approved skill edits from `reflect` | Before approval, show the destination in the current harness's discovered project or user skills directory. After explicit approval, copy the skill folder there and edit the copy. Never edit `plugins/cache/`. Retain the source instruction against opening a PR or pushing; user and project instructions still take precedence. Use only an available, authorized backlog tracker. |
-| Find, maintain or generate skills under `.cursor/skills/` or `~/.cursor/skills/` | Resolve project and personal locations through the active harness's discovered skill directories. Preserve the user's chosen scope when locating an existing skill or writing the result. A personal install stays in the user's skill directory. Apply repository PR delivery only to project changes. Keep generated skills separate from this bundle. |
-| `/loop`, custom modes, cloud agents | These are not supplied by this adapter. Use a corresponding capability only if the current environment provides it. |
+| `/loop`, custom modes, cloud agents | Not supplied by this adapter (`agent-workers` runs local processes). Use a corresponding capability only if the current environment provides it. |
 
-If a required step has no available equivalent, report the specific gap and keep that step unresolved. Do not claim the complete playbook ran. Follow existing authorization and verification constraints. Upstream scripts may need Bun, GitHub CLI or Origin CLI, `jq`, or app-specific tools; inspect their prerequisites before running them. Do not add dependencies merely to read a skill.
+## Gaps and prerequisites
+
+If a required step has no available equivalent, report the specific gap, keep that step unresolved, and do not claim the complete playbook ran. Upstream scripts may require Bun, `gh` or `origin` CLI, `jq`, or app-specific tools; check prerequisites before running them and do not install dependencies merely to read a skill.

@@ -1,134 +1,99 @@
 # Setup and configuration
 
+Run setup when the user asks, or when `agent-workers run` fails with `config_invalid` because `workers.toml` does not exist. Ask one question at a time.
 
-Run the setup when the user asks for it, or when `agent-workers run` fails with `config_invalid` because `workers.toml` does not exist. Ask the user one question at a time.
-
-1. Run `agent-workers detect`. Show the selected `backend`, available harnesses, and Pi providers. Rex and core use native status reporting. Legacy mode reports the `pi_integration` status and version. Recover any missing or conflicting caller context before launching.
-2. Ask which workers to define. A worker is a name plus a harness, a model, an optional effort, optional extra arguments, and an optional `description` of its intended tasks and boundaries. One worker/model is sufficient; multiple roles may share it. Different models can provide additional review perspectives when configured.
-   - Pi: run `pi --list-models <text>` to find a model. Use the `provider` key with the model ID from that list. `effort` is the Pi thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
-   - Codex: the model name that `codex -m` accepts. `effort` is the value for Codex's `model_reasoning_effort`, such as `medium` or `high`.
-   - Claude Code: an alias such as `opus`, `sonnet`, or `haiku`, or a full model ID. `effort` is the value for `claude --effort`, such as `high` or `max`.
-   - Antigravity CLI (`agy`): run `agy models` to list models. Either use a full effort-suffixed model ID (such as `gemini-3.8-flash-high` or `gemini-4-neon-high`) without `effort`, or use a base model name (such as `gemini-3.8-flash`) with `effort` (`low`, `medium`, `high`, `xhigh`, `max`). Passing a conflicting `effort` alongside an effort-suffixed model ID fails.
-3. Ask for the permission arguments of each worker. A worker that stops at a permission prompt stays stuck, because you never answer dialogs. Tell the user that the flags they choose are their authorization for that worker. Recommend automatic approval modes. These flags completed real worker tasks without permission prompts:
+1. Run `agent-workers detect` to show the selected `backend`, installed harnesses, Pi providers, and (for legacy Herdr) `pi_integration` status/version. Rex and core use native status reporting. Recover missing or conflicting caller context before launching.
+2. Ask which workers to define (name, `harness`, `model`, optional `effort`, optional `args`, optional `description`). One worker/model is enough; multiple roles may share it, and additional models are optional for extra review perspectives.
+   - **Pi:** run `pi --list-models <text>`; set `provider` and model ID. `effort`: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
+   - **Codex:** model name accepted by `codex -m`. `effort`: `model_reasoning_effort` (e.g., `medium`, `high`).
+   - **Claude Code:** alias (`opus`, `sonnet`, `haiku`) or full model ID. `effort`: `claude --effort` (e.g., `high`, `max`).
+   - **Antigravity CLI (`agy`):** run `agy models`. Either use an effort-suffixed ID (`gemini-3.8-flash-high`, `gemini-4-neon-high`) without `effort`, or a base model name (`gemini-3.8-flash`) with `effort` (`low`, `medium`, `high`, `xhigh`, `max`). Passing a conflicting `effort` alongside an effort-suffixed ID fails.
+3. Ask for each worker's permission arguments. Because controllers never answer dialogs, a worker that stops at a permission prompt stays stuck. Remind the user that chosen flags are their authorization for that worker, and recommend automatic approval modes (verified on real tasks):
 
    | Harness | Arguments | Effect |
    |---|---|---|
-   | `pi` | none | No per-tool approval by default; Pi 1.1.0 can still ask for project trust before startup. |
-   | `codex` | `-s workspace-write -a on-request -c approvals_reviewer='"auto_review"'` | Recommended. Automatically reviews approval requests. Verified for shell commands and writes in the task directory outside cwd. |
-   | `codex` | `-s workspace-write -a never` | Writes in its cwd and in the task directory, never prompts. Verified. |
-   | `claude` | `--permission-mode auto` | Recommended. Automatically reviews actions. Verified for a worker and a controller that ran shell commands, delegated tasks, and read result files. |
-   | `claude` | `--permission-mode acceptEdits` | Edits files without a prompt. Shell commands and reads outside the project can still prompt. Verified for file writes. |
-   | `agy` | `--mode auto` | Recommended. Auto-approves edits, runs commands in the terminal sandbox, and auto-checks commands outside the sandbox. Verified for reads/writes in the task directory outside cwd via `--add-dir`. Unavailable on business/enterprise accounts or without a terminal sandbox (falls back to default mode). |
-   | `agy` | `--dangerously-skip-permissions` | Auto-approves all tool permission requests without prompting. Use when `--mode auto` is unavailable. |
-   | `agy` | `--mode accept-edits` | Auto-approves workspace file edits without prompting. Shell commands and other tools can still prompt. |
+   | `pi` | none | No per-tool approval by default; Pi 1.1.0 can still prompt for project trust on startup. |
+   | `codex` | `-s workspace-write -a on-request -c approvals_reviewer='"auto_review"'` | Recommended. Auto-reviews approvals; verified for shell commands and writes in the task dir outside cwd. |
+   | `codex` | `-s workspace-write -a never` | Writes in cwd and task dir without prompting. Verified. |
+   | `claude` | `--permission-mode auto` | Recommended. Auto-reviews actions; verified for workers and controllers reading config/results outside project. |
+   | `claude` | `--permission-mode acceptEdits` | Auto-approves file edits; shell commands and out-of-project reads can still prompt. Verified for file writes. |
+   | `agy` | `--mode auto` | Recommended. Auto-approves edits, runs commands in terminal sandbox, auto-checks outside sandbox; verified for task dir via `--add-dir`. Unavailable on business/enterprise accounts or without sandbox (falls back to default mode). |
+   | `agy` | `--dangerously-skip-permissions` | Auto-approves all tool permissions without prompting. Use when `--mode auto` is unavailable. |
+   | `agy` | `--mode accept-edits` | Auto-approves workspace file edits; shell commands and other tools can still prompt. |
 
-   Automatic approval can deny an action. These runs verified successful workflows; they did not deliberately trigger a denial. Inspect and report any worker problem as described below. Startup trust dialogs are separate from action approval.
+   Automatic approval can still deny an action (runs verified normal workflows, not deliberate denials). Startup trust dialogs are separate from action approval.
 
-4. Ask for `max_active_workers` (default 4) and `notify_after_minutes` (default 180). Rex counts unclosed tasks per server and session. Core counts unclosed tasks by core ID in this store, plus legacy reservations in the GUI caller's workspace. Legacy execution uses per-workspace quotas.
-   The controller needs access to both the configuration directory (`~/.config/agent-workers/`) and the task directory (`~/.local/state/agent-workers/`, or their XDG equivalents). Claude Code's `auto` mode completed a skill E2E that read the configured `workers.toml` and task results outside the project. With other permission modes, reads outside the project can prompt; the user can add the directories to `permissions.additionalDirectories` in their Claude Code settings.
-5. Write `~/.config/herdr-orchestrator/workers.toml` (or `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml`) in the format under "Configuration" below. Show the user the file.
-6. Rex and core use the harness's native OSC 7501 idle readiness. Codex runs interactively with `--no-daemon`. Conflicting daemon arguments are rejected. Run `agent-workers check --cwd <worker directory>` with the caller options below to verify actual configured delivery. Startup trust dialogs remain the user's decision.
+4. Ask for `max_active_workers` (default 4) and `notify_after_minutes` (default 180). Reservation scopes: Rex per server+session; core per core ID (plus legacy tasks in a GUI caller's workspace); legacy per workspace.
+   The controller needs access to `$XDG_CONFIG_HOME/herdr-orchestrator/` (`~/.config/herdr-orchestrator/`) and `$XDG_STATE_HOME/herdr-orchestrator/` (`~/.local/state/herdr-orchestrator/`). Claude Code `--permission-mode auto` reads both without prompting; with other permission modes, the user can add these paths to `permissions.additionalDirectories` in Claude Code settings.
+5. Write `~/.config/herdr-orchestrator/workers.toml` (or `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml`) per [Configuration](#configuration) and show the user the file.
+6. Verify delivery with `agent-workers check --cwd <worker-dir>` (with caller options). Rex and core require native OSC 7501 idle readiness; Codex runs interactively with `--no-daemon` (conflicting daemon args are rejected). Startup trust dialogs remain the user's decision.
 
-   For legacy Pi workers, install Herdr's Pi integration with `herdr integration install pi`. `agent-workers` requires its ready-session signal before submitting a task. Run `agent-workers check --cwd <a directory the workers will work in>`. If Herdr reports the Pi integration as missing, `run` and any `check` batch selecting Pi fail with `pi_integration_missing` before allocating any worker. Unknown or unavailable integration status still uses the live ready-session guard. Successful check output has one `ok` field per worker. For a line with `ok: false`, read `message`, look at the pane it names (see [problem handling](../SKILL.md#problems)), and tell the user. After the user clears a dialog, run `agent-workers close <task-id>` and `agent-workers check <worker>` again.
+   For legacy Pi workers, run `herdr integration install pi`. `agent-workers` requires its ready-session signal before submission: missing integration fails `run` and Pi `check` batches with `pi_integration_missing` before allocation; unknown status still enforces the live ready-session guard. Each `check` row reports `ok`; on `ok: false`, read `message`, inspect the pane per [Problems](../SKILL.md#problems), and inform the user. After they clear a dialog, run `agent-workers close <task-id>` and rerun `agent-workers check <worker>`.
 
 ## Caller context
 
-`agent-workers detect` reports the route indicated by caller context. `run` and `check`
-verify that context before creating anything. When both Rex and Herdr hints are
-inherited, supply the explicit caller option for this conversation. A shared
-daemon can retain an older conversation's environment. Use the local terminal
-that actually hosts this conversation. Controllers outside both multiplexers can
-use core headless.
+`agent-workers detect` reports the indicated route; `run` and `check` verify it before creating anything. When both Rex and Herdr hints are inherited (e.g., from a shared daemon retaining an older conversation's env), pass the explicit caller option for the terminal hosting **this** conversation. Controllers outside both multiplexers use headless core.
 
 ### Rex caller
 
-Rex ordinary shell callers can use `REX_SESSION` and `REX_BLOCK` when the block's
-process tree contains `agent-workers`. If `REX_SERVER` is supplied, it must identify a
-local Unix-socket server. Set it to the endpoint for a nondefault local server.
-Workers start directly in `Workers` blocks in the verified session. `agent-workers`
-reuses its own worker tabs up to four blocks per tab, keeps them separate
-from the controller's tab, and preserves focus.
+Ordinary shell callers may use `REX_SESSION` and `REX_BLOCK` when the block's process tree contains `agent-workers`. Set `REX_SERVER` only to a nondefault local Unix-socket server. Workers launch in separate `Workers` tabs (up to 4 blocks/tab) without stealing focus.
 
-For an agent controller or tools outside the caller's process tree, find the
-full block ID with `rex ls --json` and `rex block ls -s <session> --json`. Use
-`rex block call -s <session> -b <block> process` and
-`rex capture -s <session> -b <block> --trim` to confirm the live harness, cwd,
-and text unique to this conversation's visible screen. An installed CLI,
-the first listed session, or app focus is insufficient. Rerun with the verified
-block and distinctive text of at least 16 characters:
+For agent controllers or tools outside the caller's process tree, passing `--caller-text '<distinctive visible conversation text>'` (>= 16 chars) on `run` or `check` automatically scans live blocks running an expected harness in this cwd and accepts iff **exactly one** matches (failing closed with `caller_context_invalid` on 0 or >1 matches):
 
 ```bash
 python3 <skill-dir>/scripts/agent-workers.py run <worker> --brief <file> --cwd <worker-dir> \
-  --caller-block <confirmed-block-id> --caller-text '<distinctive visible conversation text>'
+  --caller-text '<distinctive visible conversation text>'
 ```
 
-Pass the same caller options to `check`. If no unique block can be confirmed,
-report the missing context and leave dispatch stopped. See the [Rex CLI guide](https://www.superlogical.com/rex/docs/automate/cli).
+When disambiguating `caller_context_conflict` (both Rex and Herdr hints present) or multiple matching blocks, locate the full block ID via `rex ls --json` and `rex block ls -s <session> --json`, confirm live harness, cwd, and visible text with `rex block call -s <session> -b <block> process` and `rex capture -s <session> -b <block> --trim`, and pass explicit `--caller-block <confirmed-block-id>` alongside `--caller-text`. Installed CLIs, the first listed session, and app focus are insufficient. If no unique block can be confirmed, report the missing context and stop dispatch. See the [Rex CLI guide](https://www.superlogical.com/rex/docs/automate/cli).
 
 ### Herdr caller
 
-Controllers in Herdr must present each core worker in an owned attach pane in
-`Workers` tabs in the verified caller's live workspace. Legacy runtime uses
-`Workers` tabs. Both paths verify the caller before layout writes and preserve its
-tab and focus. Report any presentation failure at the recorded backend.
+In Herdr, core workers attach in owned `Workers` viewer panes in the verified caller's live workspace; legacy workers use `Workers` tabs there. Both preserve the caller's tab and focus.
 
-Legacy execution requires `HERDR_ENV=1`. Core requires caller verification whenever `--caller-pane` or `--caller-text` is supplied, `HERDR_ENV=1`, or any nonempty `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, or `HERDR_SOCKET_PATH` is inherited. This preserves viewer placement when tools lose `HERDR_ENV`. Core also requires `HERDR_SOCKET_PATH` before launch to pin viewer cleanup. A nonblank caller pane ID comes from `--caller-pane` when given, otherwise `HERDR_PANE_ID`. Herdr's `--current` only reads `HERDR_PANE_ID`; it does not check that the pane hosts the caller. `agent-workers` therefore proves the caller before task allocation:
+Legacy execution requires `HERDR_ENV=1`. Core requires caller verification whenever `--caller-pane` or `--caller-text` is passed, `HERDR_ENV=1`, or any nonempty `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, or `HERDR_SOCKET_PATH` is inherited (preserving viewer placement even if a tool drops `HERDR_ENV`), and requires `HERDR_SOCKET_PATH` before launch to pin cleanup. Pane ID comes from `--caller-pane`, auto-resolved `--caller-text`, or `HERDR_PANE_ID` (note: Herdr `--current` reads `HERDR_PANE_ID` without verifying ownership). Before task allocation, `agent-workers` verifies:
 
-1. For ordinary shell automation without controller session variables or a harness ancestor, the named pane's shell (`herdr pane process-info`, `shell_pid`) must be an ancestor of `agent-workers`. Its live workspace and tab are then used for placement. A contradictory pane claim is rejected.
-2. Agent controllers require explicit `--caller-pane` and `--caller-text` even when a pane shell is an ancestor: a shared daemon may still descend from another conversation's pane. An explicit conversation proof selects the actual controller rather than the daemon's process host. Tools outside all pane trees also require this proof.
-3. The confirmed pane's foreground must run the controller's harness in this conversation's cwd (the cwd of the `agent-workers` command, which can differ from the worker's `--cwd`). The text must contain at least 16 characters and, after whitespace normalization, match only that pane among live panes running the controller harness. Use distinctive text from this conversation's visible screen. When the controller exports `CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID`, or `ANTIGRAVITY_CONVERSATION_ID` and the pane reports a session for that harness, the two must match; session metadata alone never replaces the screen check.
+1. **Ordinary shell automation** (no controller session vars or harness ancestor): the named pane's `shell_pid` (`herdr pane process-info`) must be an ancestor of `agent-workers`; its live workspace and tab are used. Contradictory claims are rejected.
+2. **Agent controllers and external tools:** always require `--caller-text` (even if a pane shell is an ancestor, because a shared daemon such as Codex 0.162 `codex app-server` with PPID 1 retains the spawning pane's env and hooks across conversations). Passing `--caller-text` alone scans live panes running an expected harness in this conversation's cwd (matching exported session env when present) and accepts iff **exactly one** pane matches, failing closed (`caller_context_invalid`) on 0 or >1 matches. Pass explicit `--caller-pane <id>` alongside `--caller-text` to disambiguate `caller_context_conflict` or multiple candidates.
+3. **Live screen proof:** the pane's foreground must run the controller's harness in the conversation's cwd (not a plain shell). `--caller-text` (>= 16 chars, whitespace-normalized) must match **only** that pane among live panes running that harness. If `CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID`, or `ANTIGRAVITY_CONVERSATION_ID` is exported and reported by the pane, they must match (session metadata alone never replaces the screen check).
 
-Missing or unavailable caller panes also produce `caller_context_invalid`; an unavailable Herdr service remains a `herdr_error`. Never substitute the currently focused pane.
+Missing/unavailable panes return `caller_context_invalid`; an unavailable Herdr service returns `herdr_error`. Never substitute the focused pane, treat lost Herdr env as headless, or strip inherited context to bypass failure.
 
-If this conversation is in Herdr but its tool environment has lost all Herdr context, restore the controller's context before `run` or `check`; the CLI cannot infer an absent association. Do not treat a missing environment flag as a headless request or clear inherited context to bypass a failure. After launching, verify `viewer` belongs to the confirmed workspace and an `Workers` tab, and report any viewer warning or failed attachment immediately. Preserve the running task rather than redispatching it.
-
-A shared agent daemon requires the conversation proof in cases 2–3. Codex 0.162 runs a conversation's tools in a `codex app-server` process with parent PID 1 that keeps the environment of the pane that started it, so every Codex conversation using that daemon sees that pane's ID. Herdr's Codex hook runs there too, so Herdr can attach a Codex session to the wrong pane. Before passing `--caller-pane`, confirm the controller pane and record the evidence for the user:
-
-- `herdr pane list` and `herdr pane process-info --pane <id>`: the candidate pane's foreground runs the controller's harness in the conversation's working directory. A pane whose foreground is a plain shell is not the controller.
-- If more than one pane runs that harness, read each candidate with `herdr pane read <id> --source visible` and match text unique to this conversation, such as your latest command. If no single pane matches, report the candidates and leave dispatch stopped.
-
-Pass the confirmed ID and text to every `run` and `check` in this conversation:
+If auto-resolution fails or both multiplexers are inherited, locate the pane manually:
+- Inspect `herdr pane list` and `herdr pane process-info --pane <id>` for a pane running the controller's harness in this conversation's cwd.
+- If multiple candidates match, read each via `herdr pane read <id> --source visible` for unique conversation text (e.g., your latest command). If no single pane matches, report the candidates and stop dispatch.
 
 ```bash
 python3 <skill-dir>/scripts/agent-workers.py run <worker> --brief <file> --cwd <worker-dir> \
   --caller-pane <confirmed-id> --caller-text '<distinctive visible conversation text>'
 ```
 
-The tool reads process information and visible screens itself. Missing, incorrect or ambiguous evidence stops dispatch before allocating a task. It saves `controller_verification` in the task record before launching the worker: live pane/tab/workspace IDs, conversation cwd, shell and foreground harness PIDs, verification method and time, and a SHA-256 screen hash. Full pane text is not saved. Process ancestry produces the same record for ordinary shell automation inside its pane. Recheck after resuming the controller; do not relocate workers and edit task records as routine recovery.
+`agent-workers` verifies process info and visible screens itself, rejecting missing, wrong, or ambiguous evidence before allocation, and saves `controller_verification` (live IDs, cwd, PIDs, method, timestamp, SHA-256 screen hash—never full pane text). Recheck after resuming the controller; do not manually relocate workers or edit task records.
 
-After core viewer creation, the tool re-reads the controller's live workspace, viewer pane and tab, foreground process argv, and visible screen. `viewer_verified: true` requires a separate `Workers` tab in that workspace, the pinned executable attaching the exact core terminal, and recognizable rendered output read from that terminal. It is a timestamped observation, not a guarantee that the user has focused or seen the tab. Before asking the user to operate a worker window, run `agent-workers verify-viewer <task-id>` and require a fresh successful verification. On failure, report `viewer_verification_error` and leave interaction stopped; a returned viewer ID is not evidence of visibility.
+After core viewer creation, `agent-workers` re-reads live workspace, viewer pane/tab, foreground attach argv, and visible output. `viewer_verified: true` confirms a separate `Workers` tab in that workspace, exact pinned executable/terminal attach argv, and recognizable rendered output at that timestamp (not that the user has focused the tab). Always run a fresh `agent-workers verify-viewer <task-id>` before asking the user to operate a worker window; on failure, report `viewer_verification_error` and do not direct them there.
 
-Moving a pane is different from a stale ID. Herdr preserves the moved terminal's launch-time ID as an alias and the shell keeps its process, so the check above still passes and the live workspace/tab are used. See the official [CLI reference](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/cli-reference.mdx).
+Moved panes keep their launch-time ID as an alias and keep their shell PID, so verification still succeeds against the live workspace/tab. See the [Herdr CLI reference](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/cli-reference.mdx).
 
 ## Dialogs that stop a worker before it starts
 
-Rex and core require native idle before task submission. Check `startup_ready`,
-`submission`, and `execution_observed` separately. After a startup failure with
-`submission: "not_sent"`, `wait --recheck` may observe native idle while leaving
-the task unsent. Once the user resolves readiness and chooses recovery, `agent-workers
-submit <task-id>` sends the original brief once on that retained block or
-terminal. It rejects `sent`, `unknown`, historical, closed, or completed tasks.
-A send timeout leaves the outcome `unknown`. Legacy recovery requires
-inspection, closure, and a fresh task.
+Rex and core require native idle before submission, tracking `startup_ready`, `submission`, and `execution_observed` separately. After `start_failed` with `submission: "not_sent"`, `wait --recheck` observes idle without sending; once the user resolves readiness and approves recovery, `agent-workers submit <task-id>` sends the original brief once (rejects `sent`, `unknown`, historical, closed, or completed tasks; send timeouts leave `unknown`). Legacy recovery requires inspection, closure, and a fresh task.
 
-These appear before the worker reads its task. `agent-workers` reports `start_failed` and leaves the pane open. The user must clear each one once, in the pane or by starting the harness there themselves.
+Common pre-task trust dialogs (`agent-workers` reports `start_failed` and leaves the pane open for the user to clear once):
 
-- Codex asks "Trust this folder?" for every git repository it has not trusted yet. Trust belongs to the git root. A trusted parent folder does not cover a new repository below it. Worktrees of a trusted repository are covered.
-- Claude Code asks whether to trust a folder the first time it runs there.
-- Claude Code asks "Allow external CLAUDE.md file imports?" when the worker's cwd is a subdirectory of a project whose `CLAUDE.md` imports a file with `@`.
-- Pi 1.1.0 asks "Trust project folder?" when an untrusted directory has project resources, including an empty `.agents/skills` directory in an ancestor. Herdr 0.9.3 can misclassify this dialog as idle. `agent-workers` therefore waits for the Pi integration's session signal and sends no task prompt if it is absent. Trust is path-based; a git worktree outside a trusted directory may need its own decision. The user can choose Pi's `--approve` or `--no-approve` in worker `args` to explicitly allow or ignore project resources for that process; never add those flags to dismiss a dialog automatically.
-- Antigravity CLI (`agy`) asks "Do you trust the contents of this project?" for untrusted directories and saves trusted paths under `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`. It natively reports `blocked` via OSC 7501 during the trust prompt, so `agent-workers` leaves the task `start_failed` with `submission: "not_sent"` until the user trusts the folder.
+- **Codex:** "Trust this folder?" per untrusted git root (trusted parent does not cover nested repos; worktrees of a trusted repo are covered).
+- **Claude Code:** First-time folder trust; also "Allow external CLAUDE.md file imports?" when cwd is under a project whose `CLAUDE.md` uses `@` imports.
+- **Pi 1.1.0:** "Trust project folder?" when an untrusted dir or ancestor has project resources (even an empty `.agents/skills`). Because Herdr 0.9.3 can misclassify this as idle, legacy `agent-workers` requires the Pi integration session signal before sending. Trust is path-based (worktrees outside trusted paths may prompt). Only the user may add `--approve` or `--no-approve` to worker `args`—never add them automatically.
+- **Antigravity CLI (`agy`):** "Do you trust the contents of this project?" (saved under `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`). Natively reports `blocked` via OSC 7501, so `agent-workers` leaves `start_failed` with `submission: "not_sent"`.
 
 ## Reviewing configured workers
 
-Use `agent-workers stats [--workspace <id>] [--days <n>]` before proposing changes to this file. It reads the store and configuration without multiplexer calls or writes. See [worker statistics](stats.md) for fields, limitations, and interpreting the numbers with the user.
+Run `agent-workers stats [--workspace <id>] [--days <n>] [--no-samples]` before proposing edits to `workers.toml`, and `agent-workers roles [<role>]` to validate role-to-worker mappings. See [worker statistics](stats.md).
 
 ## Configuration
 
+User-owned config path: `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml` (default `~/.config/herdr-orchestrator/workers.toml`).
 
-`agent-workers` reads `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml`, by default `~/.config/herdr-orchestrator/workers.toml`. The user owns this file.
-
-`description` is optional controller guidance. Existing configurations remain valid without it. Role mappings take precedence over descriptions, and `agent-workers` does not select models or pass descriptions to harness commands. Describe task scope rather than unverified capability or cost rankings. Upgrade every installed `agent-workers` that reads a shared configuration before adding this key; older versions reject unknown keys.
+Optional `description` guides controller selection when no role applies; role mappings take precedence, and descriptions are not passed to harnesses. Describe task scope rather than unverified capability or cost claims. Upgrade all installed `agent-workers` instances sharing a config before adding `description` (older versions reject unknown keys).
 
 ```toml
 # If you are the controller (you start workers with agent-workers), delegate only
@@ -167,14 +132,14 @@ args = ["--mode", "auto"]
 
 | Key | Meaning |
 |---|---|
-| `max_active_workers` | Default 4. Rex scopes reservations to a server and session. Core scopes them to the core ID and counts legacy tasks in a GUI caller's workspace. Legacy launches keep workspace limits. |
-| `notify_after_minutes` | When a task runs longer than this, `agent-workers wait` notifies once. Default 180. |
+| `max_active_workers` | Default 4. Scoped per Rex server+session, per core ID (+ legacy GUI workspace), or per legacy workspace. |
+| `notify_after_minutes` | Default 180. Threshold after which `wait` emits `long_running` once. |
 | `workers.<name>.harness` | `pi`, `codex`, `claude`, or `agy`. |
-| `workers.<name>.model` | The model as the harness accepts it on its command line. |
-| `workers.<name>.provider` | Pi only. Passed as `--provider`. |
+| `workers.<name>.model` | Model ID/alias accepted by the harness CLI. |
+| `workers.<name>.provider` | Pi only (`--provider`). |
 | `workers.<name>.effort` | Optional reasoning effort. |
-| `workers.<name>.description` | Optional string describing intended tasks and boundaries for the controller. |
-| `workers.<name>.args` | Optional extra arguments, such as permission flags. They come last. |
-| `roles` | Optional. Used by `pstack-herdr` for routing and `agent-workers stats` to report unconfigured assignments. |
+| `workers.<name>.description` | Optional controller guidance describing intended scope/boundaries. |
+| `workers.<name>.args` | Optional extra CLI args (e.g., permission flags), appended last. |
+| `roles` | Optional. Used by `pstack-herdr` routing and `agent-workers stats`. |
 
-A worker name matches `[a-z][a-z0-9-]{0,15}`. Task directories live in `$XDG_STATE_HOME/herdr-orchestrator/tasks/`, by default `~/.local/state/herdr-orchestrator/tasks/`, and stay until the user deletes them.
+Worker names match `[a-z][a-z0-9-]{0,15}`. Task state lives in `$XDG_STATE_HOME/herdr-orchestrator/tasks/` (default `~/.local/state/herdr-orchestrator/tasks/`) until deleted by the user.

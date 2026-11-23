@@ -12,23 +12,60 @@ import sys
 
 
 ADAPTER = Path(__file__).resolve().parents[1] / "skills/pstack-herdr"
+OPENAI_POLICY = "policy:\n  allow_implicit_invocation: false\n"
+RUNTIME_PREAMBLE = (
+    "## Agent Workers runtime\n\n"
+    "Read [pstack-herdr](../pstack-herdr/SKILL.md) first (overrides upstream tools, "
+    "model defaults, setup, and Cursor paths). Resolve siblings via `../<name>/SKILL.md` "
+    "and relative paths from this folder. Delegate only via `agent-workers` + `workers.toml`; "
+    "no nested workers. User/project rules win; keep unavailable steps unresolved.\n"
+)
+POTETO_WORKER_GUARD = (
+    "**Worker guard:** If you are a worker running from a `brief.md`, skip this runtime "
+    "section and the Subagents/Playbooks sections; follow only Non-negotiables and Principles.\n\n"
+)
 
 
 def git(source, *args):
     return subprocess.check_output(["git", "-C", str(source), *args], text=True).strip()
 
 
-def portable_skill(path, preamble):
-    original = path.read_text()
-    parts = original.split("---", 2)
+def split_frontmatter(text, path):
+    parts = text.split("---", 2)
     if len(parts) != 3 or parts[0].strip():
         raise ValueError(f"Missing frontmatter: {path}")
+    return parts[1], parts[2]
+
+
+def frontmatter_field(frontmatter, key):
+    return re.search(rf"^{re.escape(key)}:.*(?:\n[ \t]+[^\n]*)*", frontmatter, re.MULTILINE)
+
+
+def has_disable_model_invocation(text, path):
+    frontmatter, _ = split_frontmatter(text, path)
+    return bool(re.search(r"^disable-model-invocation:\s*true\s*$", frontmatter, re.MULTILINE))
+
+
+def skill_preamble(name):
+    if name == "poteto-mode":
+        body = RUNTIME_PREAMBLE.removeprefix("## Agent Workers runtime\n\n")
+        return "## Agent Workers runtime\n\n" + POTETO_WORKER_GUARD + body
+    return RUNTIME_PREAMBLE
+
+
+def portable_skill(path, preamble):
+    frontmatter, body = split_frontmatter(path.read_text(), path)
     # Retain the original YAML scalar, including folded multiline descriptions.
-    match = re.search(r"^description:.*(?:\n[ \t]+[^\n]*)*", parts[1], re.MULTILINE)
+    match = frontmatter_field(frontmatter, "description")
     if not match:
         raise ValueError(f"Missing description: {path}")
-    header = f"---\nname: {path.parent.name}\n{match.group()}\n---"
-    return header + ("\n\n" + preamble if preamble else "") + parts[2]
+    lines = [f"name: {path.parent.name}", match.group()]
+    for key in ("paths", "disable-model-invocation"):
+        field = frontmatter_field(frontmatter, key)
+        if field:
+            lines.append(field.group())
+    header = "---\n" + "\n".join(lines) + "\n---"
+    return header + ("\n\n" + preamble if preamble else "") + body
 
 
 def prepare(source, output):
@@ -58,26 +95,7 @@ def prepare(source, output):
     entries = []
     for path in selected:
         name = path.parent.name
-        preamble = ""
-        if name in adapted:
-            preamble = (
-                "## Agent Workers runtime\n\n"
-                "Before following the original instructions below, read the sibling "
-                "[pstack-herdr](../pstack-herdr/SKILL.md) skill and its required mapping. "
-                "Resolve relative references from this installed skill directory. "
-                "Use a named sibling skill by reading ../<name>/SKILL.md, because "
-                "explicit-only siblings are not in the harness skill list. "
-                "The mapping translates original repository paths to bundled resources; "
-                "no separate upstream checkout is needed. "
-                "The adapter overrides upstream delegation tools, model defaults, "
-                "setup files, and Cursor-specific capabilities. Delegate only through agent-workers, "
-                "using workers.toml. Keep workflow coordination in the controller. "
-                "A bounded worker assignment remains bounded: do not start nested workers. "
-                "User and project instructions take precedence. "
-                "Check required capabilities before acting; keep unavailable steps unresolved. "
-                "For setup-pstack, use the adapter's role setup instead of the original "
-                "Cursor rule-writing procedure.\n"
-            )
+        preamble = skill_preamble(name) if name in adapted else ""
         entries.append((path, portable_skill(path, preamble) if preamble else None))
 
     for name in ("agent-workers", "pstack-herdr"):
@@ -86,11 +104,20 @@ def prepare(source, output):
 
     output.mkdir(parents=True)
     records = []
+    explicit_only = 0
     for path, content in entries:
         target = output / "skills" / path.parent.name
         shutil.copytree(path.parent, target)
         if content is not None:
             (target / "SKILL.md").write_text(content)
+        skill_md = target / "SKILL.md"
+        if has_disable_model_invocation(skill_md.read_text(), skill_md):
+            openai_yaml = target / "agents/openai.yaml"
+            if openai_yaml.exists() and openai_yaml.read_text() != OPENAI_POLICY:
+                raise ValueError(f"Conflicting upstream openai.yaml: {path.parent.name}")
+            openai_yaml.parent.mkdir(parents=True, exist_ok=True)
+            openai_yaml.write_text(OPENAI_POLICY)
+            explicit_only += 1
         group = path.relative_to(source).parts[0]
         shutil.copyfile(source / group / "LICENSE", target / "UPSTREAM-LICENSE.txt")
         records.append({"name": path.parent.name, "adapted": content is not None,
@@ -113,6 +140,7 @@ def prepare(source, output):
         json.dumps(receipt, indent=2) + "\n")
     return {"output": str(output), "upstream_skills": len(records),
             "adapted_skills": sum(row["adapted"] for row in records),
+            "explicit_only_skills": explicit_only,
             "companion_skills": 2, "revision": manifest["revision"]}
 
 
