@@ -14,7 +14,12 @@ import time
 WINDOW_LABEL = "Workers"
 TERMINAL = "com.superlogical.terminal"
 NATIVE_STATES = {"idle", "working", "done", "blocked", "error"}
-NATIVE_APPS = {"pi": {"pi"}, "codex": {"codex"}, "claude": {"claude", "claude-code"}}
+NATIVE_APPS = {
+    "pi": {"pi"},
+    "codex": {"codex"},
+    "claude": {"claude", "claude-code"},
+    "agy": {"agy", "antigravity"},
+}
 UUID_PATTERN = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 REX_TARGET_ENV = ("REX_SERVER", "REX_SESSION", "REX_BLOCK", "REX_CLIENT")
 

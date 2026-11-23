@@ -15,8 +15,8 @@ import time
 
 HORCH = Path(__file__).resolve().parents[1] / "skills/agent-workers/scripts/agent-workers.py"
 LEDGERS = {"alpha": [37, -12, 60, -5], "beta": [41, 7, -70, 19]}
-MUX_PREFIXES = ("REX_", "HERDR", "HC_")
-AGENT_SESSION_KEYS = {"CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID"}
+MUX_PREFIXES = ("REX_", "HERDR", "HC_", "ANTIGRAVITY_")
+AGENT_SESSION_KEYS = {"CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "ANTIGRAVITY_CONVERSATION_ID"}
 FIXTURE = r'''import json, os, pathlib, re, select, sys, tty
 root = pathlib.Path(__file__).resolve().parents[1]
 if "--version" in sys.argv or "--list-models" in sys.argv:

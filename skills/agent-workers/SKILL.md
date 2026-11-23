@@ -1,6 +1,6 @@
 ---
 name: agent-workers
-description: "Delegate tasks to Pi, Codex, or Claude Code workers through agent-workers and wait for their file results. Use for Rex or Herdr delegation, headless herdr-core, multi-model tasks, worker setup, or worker efficiency review."
+description: "Delegate tasks to Pi, Codex, Claude Code, or Antigravity CLI (agy) workers through agent-workers and wait for their file results. Use for Rex or Herdr delegation, headless herdr-core, multi-model tasks, worker setup, or worker efficiency review."
 ---
 
 # agent-workers
@@ -61,7 +61,7 @@ For agent controllers and tools outside the terminal's process tree, pass `--cal
 
 `agent-workers wait <task-id> ...` has no default time cap and returns when any waited task changes state. It uses native core events, Rex program status, or the legacy Herdr polling loop. These reads do not invoke a model. Wait again for the remaining running tasks after handling each change.
 
-- With background commands or yielded shell sessions, run `agent-workers wait` **without `--max-seconds`** and resume that same process/session until it returns. A shell tool's yield timeout returns control to you; it does not require a timeout on `agent-workers`. Post user updates while the wait stays alive. Claude Code supports background commands; Codex runtimes with yielded exec sessions can resume the returned session handle.
+- With background commands or yielded shell sessions, run `agent-workers wait` **without `--max-seconds`** and resume that same process/session until it returns. A shell tool's yield timeout returns control to you; it does not require a timeout on `agent-workers`. Post user updates while the wait stays alive. Claude Code and Antigravity CLI (`agy`) support background commands; Codex runtimes with yielded exec sessions can resume the returned session handle.
 - If the runtime only supports blocking shell calls (including Pi without a background facility), use `agent-workers wait <task-id> ... --max-seconds 300` and a shell-tool timeout above 300 seconds. Use a shorter cap only when tool limits, a required update cadence, or a user request requires it.
 - A wait cap stops that observation call, not the worker. Repeat while tasks are `running`; report `long_running` once and keep waiting. Never cancel a worker merely to end a wait.
 

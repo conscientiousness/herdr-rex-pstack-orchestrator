@@ -49,6 +49,14 @@ model = "haiku"
 effort = "max" # passed as claude --effort
 args = ["--permission-mode", "auto"]
 
+[workers.flash]
+description = "Fast investigation and bounded fixes."
+harness = "agy"
+# Run `agy models` for available IDs. Use either an effort-suffixed ID without
+# `effort`, or a base model name (e.g. "gemini-3.8-flash") with `effort`.
+model = "gemini-3.8-flash-high"
+args = ["--mode", "auto"]
+
 # Optional. pstack-herdr uses roles for routing; agent-workers stats reports missing workers.
 # A single role names one worker from [workers]; a panel role lists one
 # worker per review task. Repeated names start separate fresh processes.

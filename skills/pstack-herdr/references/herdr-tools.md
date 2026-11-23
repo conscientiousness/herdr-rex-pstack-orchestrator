@@ -1,6 +1,6 @@
 # Horch tool mapping for pstack
 
-Original pstack describes Cursor tools and agents. With `pstack-herdr` active, the controller uses the mapping below on Claude Code, Codex, and Pi. Installed workflow skill entries load this mapping before their upstream instructions. They use normal harness skill discovery, without a Cursor plugin loader.
+Original pstack describes Cursor tools and agents. With `pstack-herdr` active, the controller uses the mapping below on Claude Code, Codex, Pi, and Antigravity CLI (`agy`). Installed workflow skill entries load this mapping before their upstream instructions. They use normal harness skill discovery, without a Cursor plugin loader.
 
 | pstack action | Horch equivalent |
 |---|---|

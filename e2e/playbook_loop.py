@@ -764,7 +764,7 @@ def audit_pi(path, session, cwd, started, spec, required_reads, required_command
                 if not isinstance(args, dict) or block.get('id') in pending:
                     raise Failure('native_tool_arguments_invalid')
                 command = args.get('command', '')
-                if name == 'bash' and re.search(r'(?:^|[;&|\n]\s*)(?:codex|claude|pi)\b|\bherdr\s+agent\s+start\b', command):
+                if name == 'bash' and re.search(r'(?:^|[;&|\n]\s*)(?:codex|claude|pi|agy)\b|\bherdr\s+agent\s+start\b', command):
                     raise Failure('native_delegation_forbidden')
                 hash_target = artifact_hash_target(name, args)
                 if hash_target is not None and hash_sources[str(hash_target)] not in delivered_closed:

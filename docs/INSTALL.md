@@ -22,6 +22,10 @@ mkdir -p ~/.claude/skills
 ln -s "$PWD/skills/agent-workers" ~/.claude/skills/
 ```
 
+For Antigravity CLI (`agy`), install globally into `~/.gemini/config/skills/` or
+into `.agents/skills/` at the project root (or select `antigravity-cli` in
+`npx skills add`).
+
 For pstack workflows, install all sibling directories under `skills/` so the
 adapter can find the other skills it needs. Do not overwrite an existing skill
 without reviewing the conflict. Open a fresh agent session after installation.
