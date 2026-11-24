@@ -15,6 +15,7 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 - **Verify controller location:** Rex -> `Workers` tabs in verified session; Herdr core -> `Workers` viewers in verified workspace; legacy Herdr -> `Workers` tabs (separate tab, preserve focus; headless core outside both). Recover missing/conflicting context first.
 - **No intervention:** Never answer dialogs, send keys/text to panes, or send `/model`.
 - **Wait for `state: "done"`:** Never consume early files; closing an unfinished worker cancels it and fails review gates.
+- **Never yield without an active wait:** `agent-workers run` (without `--wait`) exits immediately and creates no harness wakeup—external Rex/Herdr panes never wake the controller. After dispatching any worker, do not end your turn with a status message until a background `agent-workers run --wait` or `agent-workers wait` covering every running task is active.
 - **`done` != verified:** Check `result_status` (`completed`/`failed`/`blocked`) and verify independently.
 - **User-directed recovery:** Inspect/report problems; never restart, resend, or switch workers without approval. Close only `agent-workers` panes via `close`.
 
@@ -24,7 +25,7 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 
 | Command | Purpose |
 |---|---|
-| `run <worker> --brief <file\|-> [--cwd <dir>]` | Launch worker (`-`=stdin); check state, submission, viewer warning. |
+| `run <worker> --brief <file\|-> [--cwd <dir>] [--wait [--max-seconds <n>]]` | Launch worker (`-`=stdin); `--wait` flushes launch JSON then waits for settlement (2 NDJSON lines). |
 | `wait [<id>...] [--all] [--max-seconds <n>] [--recheck]` | Wait for change (`--all`: until all settle; returns immediately on problems, `long_running`, unclosed `done`). |
 | `list [--active] [--limit <n>] [--verbose]` | Compact list (`--verbose` adds full backend bindings). |
 | `roles [<role>]` | Resolve `workers.toml` roles/workers; flag issues. |
@@ -41,8 +42,8 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 
 1. **Select & isolate:** Role-first (`roles`), else `description`. When the user specifies a profile/config, pass the same `--profile`/`--config` consistently to `roles`, `run`, `wait`, `check`, and `stats`; if the requested file is missing (outside a sandbox), report failure and never silently fall back to default `workers.toml`. Separate git worktree per writer at `<main checkout>/.worktrees/<name>` (`--cwd`; [placement](references/setup.md#worktree-placement)); read-only workers may share checkout (writes only to declared reports + `result.json` in task dir).
 2. **Brief:** Goal, criteria, PR-first limit, absolute paths, ownership, verification, outputs, commit rule (`agent-workers` appends rules/schema).
-3. **Dispatch:** Start up to `max_active_workers` in parallel before waiting. On core viewer failure, report `warning` + `viewer_verification_error` immediately while monitoring.
-4. **Wait & read:** Unbounded `wait` (`--all` for batches) in background/yielded shells (Claude Code, `agy`, Codex); `--max-seconds 300` (timeout >300s) in blocking-only shells (Pi); never `--max-seconds 1`. Report `long_running` once; never cancel to end wait. On `done`, check `result_status`, read `result_path`/`files` (relative to result dir), relay `blocked` `question`; follow-ups are fresh tasks.
+3. **Dispatch:** Start up to `max_active_workers` in parallel before waiting. In reactive-wakeup harnesses (Claude Code, `agy`, Codex), prefer background `run --wait` (one parallel background call per worker) so dispatch and waiting are atomic and you cannot yield without a wakeup; if splitting `run` and `wait`, immediately start a background `wait --all` before ending your turn. On core viewer failure, report `warning` + `viewer_verification_error` immediately while monitoring.
+4. **Wait & read:** Unbounded `run --wait` / `wait` (`--all` for batches) in background/yielded shells (Claude Code, `agy`, Codex); `--max-seconds 300` (timeout >300s) in blocking-only shells (Pi); never `--max-seconds 1`. Report `long_running` once; never cancel to end wait. On `done`, check `result_status`, read `result_path`/`files` (relative to result dir), relay `blocked` `question`; follow-ups are fresh tasks.
 5. **Verify & close:** Verify diffs/behavior/verdicts. If `closed: false`, read `message` and retry `close`.
 6. **Remove your worktrees:** After a writer is closed and its commits are integrated, remove only the worktrees you created this session: `git worktree remove` (no `--force`) if `git status --porcelain --ignored` is empty, then `git branch -d` (refusal keeps the branch). Keep and report any worktree with uncommitted changes, ongoing use, or unknown ownership; leave leftovers to the `Worktree cleanup` playbook ([commands](references/setup.md#worktree-placement)).
 

@@ -109,7 +109,7 @@ It must be one JSON object with exactly these keys:
 
 
 def emit(obj):
-    print(json.dumps(obj, ensure_ascii=False))
+    print(json.dumps(obj, ensure_ascii=False), flush=True)
 
 
 def fail(code, message, herdr_payload=None):
@@ -1221,6 +1221,10 @@ def dispatch_context(args):
 
 
 def cmd_run(args):
+    if args.max_seconds is not None and not args.wait:
+        fail("invalid_arguments", "--max-seconds on run requires --wait")
+    if args.max_seconds is not None and args.max_seconds < 0:
+        fail("invalid_arguments", "--max-seconds must be a non-negative integer")
     caller, binary = dispatch_context(args)
     cfg_path, cfg_profile = resolve_config(args)
     config = load_config(cfg_path, profile=cfg_profile)
@@ -1243,8 +1247,13 @@ def cmd_run(args):
         require_pi_integration()
     if binary:
         binding = core.new_binding(binary)
-    emit(start_task(config, args.worker, brief_text, resolve_cwd(args.cwd),
-                    caller_pane=args.caller_pane, caller_text=args.caller_text, binding=binding, caller=caller))
+    launched = start_task(config, args.worker, brief_text, resolve_cwd(args.cwd),
+                          caller_pane=args.caller_pane, caller_text=args.caller_text, binding=binding, caller=caller)
+    emit(launched)
+    if args.wait:
+        info = make_info(launched["task_id"])
+        wait_until_change([info], config, args.max_seconds)
+        emit(wait_line(info))
 
 
 def start_task(config, worker_name, brief_text, cwd, *, skip_if_full=False,
@@ -2886,6 +2895,8 @@ def build_parser():
     p_run.add_argument("worker", help="worker name from workers.toml")
     p_run.add_argument("--brief", required=True, help="path of the brief file for the worker, or '-' to read from stdin")
     p_run.add_argument("--cwd", help="working directory for the worker (default: the current directory)")
+    p_run.add_argument("--wait", action="store_true", help="flush the launch JSON line, then wait for this task to change state")
+    p_run.add_argument("--max-seconds", type=int, default=None, help="with --wait, return after at most this many seconds")
     add_caller_arguments(p_run)
     add_config_arguments(p_run)
     p_run.set_defaults(func=cmd_run)
