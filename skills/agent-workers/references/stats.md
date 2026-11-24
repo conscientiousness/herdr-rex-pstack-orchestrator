@@ -5,11 +5,11 @@ failing, or efficient, whether reminder timing fits, or before changing
 `workers.toml`. It reports facts; the controller interprets them.
 
 ```bash
-python3 <skill-dir>/scripts/agent-workers.py stats [--workspace <id>] [--days <n>] [--no-samples]
+python3 <skill-dir>/scripts/agent-workers.py stats [--workspace <id>] [--days <n>] [--no-samples] [--profile <name> | --config <path>]
 ```
 
-This reads only workers.toml and the task store: no Herdr calls, environment
-requirement, locks, or writes. Pass `--no-samples` to omit the per-task
+This reads only the selected worker config (`workers.toml` by default, or the specified `--profile`/`--config`) and the task store: no Herdr calls, environment
+requirement, locks, or writes. Passing `--profile`/`--config` selects the reference config (workers, roles, and `notify_after_minutes`) while still aggregating across the shared task store; `config_path` and `profile` are echoed in the output. Pass `--no-samples` to omit the per-task
 `duration_samples` array while retaining `duration_minutes` summaries and
 `delivered_duration_estimate`. The default is the whole store because worker
 definitions are global. Workspace scope uses the recorded launch workspace;

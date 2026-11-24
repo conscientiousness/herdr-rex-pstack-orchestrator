@@ -117,7 +117,16 @@ Run `agent-workers stats [--workspace <id>] [--days <n>] [--no-samples]` before 
 
 ## Configuration
 
-User-owned config path: `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml` (default `~/.config/herdr-orchestrator/workers.toml`).
+User-owned default config path: `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml` (default `~/.config/herdr-orchestrator/workers.toml`).
+
+Named profiles live beside `workers.toml` as `workers.<profile>.toml` (e.g., `workers.gpt.toml`, `workers.no-gpt.toml`; `<profile>` matches `[a-z0-9][a-z0-9-]{0,31}`). `run`, `roles`, `stats`, `detect`, `check`, and `wait` accept `--profile <name>` or `--config <path>` (mutually exclusive), resolved fail-closed in order:
+
+1. `--config <path>` (expands `~` and resolves relative paths against the controller's cwd)
+2. `--profile <name>` -> `$XDG_CONFIG_HOME/herdr-orchestrator/workers.<name>.toml`
+3. Environment variables `AGENT_WORKERS_CONFIG` or `AGENT_WORKERS_PROFILE` (fails closed with `config_invalid` if both are non-empty and no CLI flag overrides them)
+4. Default `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml`
+
+`agent-workers detect` lists discovered profiles under `config.profiles`. Missing profile/config files fail closed with `config_invalid` and never fall back to `workers.toml`. For multi-window switching under shared daemons (such as Codex `app-server`), prefer explicit CLI `--profile` / `--config` over environment variables so windows do not inherit each other's settings; worker launch wrappers strip `AGENT_WORKERS_*` from worker environments. Different Rex sessions or Herdr workspaces are isolated; windows sharing the same session/workspace still share `max_active_workers` capacity and `Workers` tabs even when using different profiles.
 
 Optional `description` guides controller selection when no role applies; role mappings take precedence, and descriptions are not passed to harnesses. Describe task scope rather than unverified capability or cost claims. Upgrade all installed `agent-workers` instances sharing a config before adding `description` (older versions reject unknown keys).
 
