@@ -1,6 +1,6 @@
 # Original pstack source and compatibility
 
-Tracks [Lauren Tan's original pstack](https://github.com/cursor/plugins/tree/fbb86c09bbb4a25e490aaed136899ced1e9140e4/pstack) **v0.15.46** (`fbb86c09bbb4a25e490aaed136899ced1e9140e4`). Pinning locks instructions, not runtime verification of every playbook. Full sync history (0.15.25–0.15.46): [UPSTREAM-CHANGELOG.md](https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/docs/UPSTREAM-CHANGELOG.md).
+Tracks [Lauren Tan's original pstack](https://github.com/cursor/plugins/tree/005d8f6e8ec057b738adcd08a08b30db0478402d/pstack) **v0.15.48** (`005d8f6e8ec057b738adcd08a08b30db0478402d`). Pinning locks instructions, not runtime verification of every playbook. Full sync history (0.15.25–0.15.48): [UPSTREAM-CHANGELOG.md](https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/docs/UPSTREAM-CHANGELOG.md).
 
 ## Install
 
@@ -12,7 +12,7 @@ Choose harnesses and project/global scope; review skill-name conflicts first. In
 
 ## Included skills and adaptations
 
-**60 entries:** 55 pstack skills, 3 team-kit skills (`control-cli`, `control-ui`, `deslop`), and 2 adapters (`agent-workers`, `pstack-herdr`), each retaining resources and `UPSTREAM-LICENSE.txt`. Original agents: [agents/](agents/). Provenance/hashes: [bundle.json](bundle.json); pin/adaptations/exclusions: [upstream.json](upstream.json).
+**61 entries:** 56 pstack skills, 3 team-kit skills (`control-cli`, `control-ui`, `deslop`), and 2 adapters (`agent-workers`, `pstack-herdr`), each retaining resources and `UPSTREAM-LICENSE.txt`. Original agents: [agents/](agents/). Provenance/hashes: [bundle.json](bundle.json); pin/adaptations/exclusions: [upstream.json](upstream.json).
 
 | Excluded skill | Reason |
 |---|---|
@@ -20,9 +20,9 @@ Choose harnesses and project/global scope; review skill-name conflicts first. In
 | `poteto-help` | Cursor-specific external guides; replaced by adapter docs. |
 | `setup-pstack` | Writes Cursor model rules; replaced by `agent-workers` setup + `workers.toml` `[roles]`. |
 
-Non-adapted upstream `SKILL.md` files (42 of 55 pstack skills—including non-dispatching `architect`, `blast-radius`, `create-verification-skill`, `principle-guard-the-context-window`, `reflect`, `why`—plus all 3 team-kit skills and standalone guidance like `unslop`, `sharpen`, and all 24 principles) are copied byte for byte. Only **13** dispatching/runtime skills in `adapted_skills` (`arena`, `automate-me`, `figure-it-out`, `how`, `interrogate`, `ketchup`, `maintain-verification-skill`, `no-comments`, `poteto-mode`, `recall`, `show-me-your-work`, `swarm`, `teach`) normalize `name`, preserve `description`, `disable-model-invocation`, and `paths:`, and prepend the concise `## Agent Workers runtime` preamble pointing to `../pstack-herdr/SKILL.md` (`poteto-mode` also leads with a 1-line worker guard so `poteto-agent` workers skip controller-only sections). Upstream plugin manifests and generated harness trees are excluded.
+Non-adapted upstream `SKILL.md` files (43 of 56 pstack skills—including non-dispatching `architect`, `blast-radius`, `create-verification-skill`, `principle-guard-the-context-window`, `reflect`, `why`—plus all 3 team-kit skills and standalone guidance like `unslop`, `sharpen`, `reframe`, and all 24 principles) are copied byte for byte. Only **13** dispatching/runtime skills in `adapted_skills` (`arena`, `automate-me`, `figure-it-out`, `how`, `interrogate`, `ketchup`, `maintain-verification-skill`, `no-comments`, `poteto-mode`, `recall`, `show-me-your-work`, `swarm`, `teach`) normalize `name`, preserve `description`, `disable-model-invocation`, and `paths:`, and prepend the concise `## Agent Workers runtime` preamble pointing to `../pstack-herdr/SKILL.md` (`poteto-mode` also leads with a 1-line worker guard so `poteto-agent` workers skip controller-only sections). Upstream plugin manifests and generated harness trees are excluded.
 
-**Explicit-only skills (`disable-model-invocation: true` & Codex `agents/openai.yaml`):** All 55 upstream pstack skills retain `disable-model-invocation: true`, and `prepare_pstack.py` generates `agents/openai.yaml` (`policy.allow_implicit_invocation: false`) for each so Codex also excludes them from implicit model context. Only 5 skills remain implicitly visible across Pi, Claude Code, and Codex (`agent-workers`, `pstack-herdr`, `control-cli`, `control-ui`, `deslop`). `paths:` is preserved without translation. Receipt: [upstream-frontmatter.json](https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/e2e/evidence/upstream-frontmatter.json).
+**Explicit-only skills (`disable-model-invocation: true` & Codex `agents/openai.yaml`):** All 56 upstream pstack skills retain `disable-model-invocation: true`, and `prepare_pstack.py` generates `agents/openai.yaml` (`policy.allow_implicit_invocation: false`) for each so Codex also excludes them from implicit model context. Only 5 skills remain implicitly visible across Pi, Claude Code, and Codex (`agent-workers`, `pstack-herdr`, `control-cli`, `control-ui`, `deslop`). `paths:` is preserved without translation. Receipt: [upstream-frontmatter.json](https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/e2e/evidence/upstream-frontmatter.json).
 
 ## Resource and runtime mapping
 
@@ -36,7 +36,7 @@ Non-adapted upstream `SKILL.md` files (42 of 55 pstack skills—including non-di
 
 See [pstack-herdr/SKILL.md](../SKILL.md) and [herdr-tools.md](herdr-tools.md) for mappings. Cursor modes, `/loop`, cloud agents, `/visualize`, and missing MCP/app tools remain unsupported unless the environment supplies equivalents; required unsupported steps stay unresolved. Bundling never installs script prerequisites (Bun, `gh`, `origin`, `jq`, `mise`/TLC/Java/`pele`).
 
-**Verification:** 0.15.43 sync passed install, regeneration, and Pi 1.5.2 / Codex 0.169.1 catalog checks (60 entries, 584 files; [receipt](https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/e2e/evidence/upstream-sync-0.15.43.json), [workflow review](https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/e2e/PLAYBOOKS.md#workflow-review-for-pstack-01543)). Native Claude Code discovery and unexecuted playbooks (formal verification, `statechart` rendering, `ketchup-video`) remain runtime unverified.
+**Verification:** 0.15.43 sync passed install, regeneration, and Pi 1.5.2 / Codex 0.169.1 catalog checks (60 entries, 584 files; [receipt](https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/e2e/evidence/upstream-sync-0.15.43.json), [workflow review](https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/e2e/PLAYBOOKS.md#workflow-review-for-pstack-01543)). 0.15.48 sync passed regeneration, install, and Pi 1.5.2 / Codex 0.172.0 catalog checks (61 entries, 651 files). Native Claude Code discovery and unexecuted playbooks (formal verification, `statechart` rendering, `ketchup-video`) remain runtime unverified.
 
 ## Maintainer updates
 

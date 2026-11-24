@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/cursor/plugins.git",
-  "revision": "fbb86c09bbb4a25e490aaed136899ced1e9140e4",
-  "version": "0.15.46",
+  "revision": "005d8f6e8ec057b738adcd08a08b30db0478402d",
+  "version": "0.15.48",
   "excluded_skills": {
     "make-bot-ui": "Requires unavailable Cursor Routines and secret-request tools; no coding workflow depends on it.",
     "poteto-help": "Cursor-specific setup and navigation duplicate the adapter docs and require unbundled guide pages; no workflow depends on it.",
@@ -277,6 +277,12 @@
       "adapted": false,
       "source": "pstack/skills/reflect/SKILL.md",
       "source_sha256": "6f6952f91514dc86257830da93a446c732a1af906f6acd5e5783dc587a29031e"
+    },
+    {
+      "name": "reframe",
+      "adapted": false,
+      "source": "pstack/skills/reframe/SKILL.md",
+      "source_sha256": "1e2e8a11da838c9169dae6fb71257041cf4e91d58862d1629354648b9bd458f3"
     },
     {
       "name": "sharpen",
