@@ -97,6 +97,16 @@ git worktree add "$root/.worktrees/<name>" -b <branch>
 
 This depends only on the main checkout being trusted, so it works on any machine. Measured with Pi 1.5.2 and Claude Code 2.1.331: neither prompts there. Pi prompts for a worktree outside trusted paths (e.g., `/tmp`), and loads the worktree's own `AGENTS.md` rather than the main checkout's.
 
+After the writer is closed and its commits are on the feature branch, remove the worktree you created:
+
+```bash
+wt="$root/.worktrees/<name>"
+[ -z "$(git -C "$wt" status --porcelain --ignored)" ] && git worktree remove "$wt" &&
+  git branch -d <branch>   # refuses unmerged commits; cherry-picked branches stay
+```
+
+Without `--force`, `git worktree remove` refuses modified or untracked files but silently deletes ignored ones (e.g., `.env`, build output), so the check includes `--ignored`. If it prints anything, keep the worktree and report the path; the `Worktree cleanup` playbook decides what is safe to drop. A branch ref costs almost no space, so keep it when `-d` refuses.
+
 ## First run on a new machine
 
 Start each harness once by hand in a trusted checkout and let it finish startup. On first launch Pi downloads `fd` and `ripgrep`; a task sent during that download stays in the input box (`not_started`, `submission: "sent"`) and must not be resent.
