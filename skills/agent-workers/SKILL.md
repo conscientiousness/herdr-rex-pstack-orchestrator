@@ -44,6 +44,7 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 3. **Dispatch:** Start up to `max_active_workers` in parallel before waiting. On core viewer failure, report `warning` + `viewer_verification_error` immediately while monitoring.
 4. **Wait & read:** Unbounded `wait` (`--all` for batches) in background/yielded shells (Claude Code, `agy`, Codex); `--max-seconds 300` (timeout >300s) in blocking-only shells (Pi); never `--max-seconds 1`. Report `long_running` once; never cancel to end wait. On `done`, check `result_status`, read `result_path`/`files` (relative to result dir), relay `blocked` `question`; follow-ups are fresh tasks.
 5. **Verify & close:** Verify diffs/behavior/verdicts. If `closed: false`, read `message` and retry `close`.
+6. **Remove your worktrees:** After a writer is closed and its commits are integrated, remove only the worktrees you created this session: `git worktree remove` (no `--force`) if `git status --porcelain --ignored` is empty, then `git branch -d` (refusal keeps the branch). Keep and report any worktree with uncommitted changes, ongoing use, or unknown ownership; leave leftovers to the `Worktree cleanup` playbook ([commands](references/setup.md#worktree-placement)).
 
 ## Problems
 
