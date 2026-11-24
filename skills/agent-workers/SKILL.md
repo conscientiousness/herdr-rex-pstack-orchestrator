@@ -17,7 +17,7 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 - **Wait for `state: "done"`:** Never consume early files; closing an unfinished worker cancels it and fails review gates.
 - **Never yield without an active wait:** `agent-workers run` (without `--wait`) exits immediately and creates no harness wakeup—external Rex/Herdr panes never wake the controller. After dispatching any worker, do not end your turn with a status message until a background `agent-workers run --wait` or `agent-workers wait` covering every running task is active.
 - **`done` != verified:** Check `result_status` (`completed`/`failed`/`blocked`) and verify independently.
-- **User-directed recovery:** Inspect/report problems; never restart, resend, or switch workers without approval. Close only `agent-workers` panes via `close`.
+- **User-directed recovery (except quota exhaustion):** Inspect/report problems; never restart, resend, or switch workers without approval—**exception:** when a worker clearly hits a usage/quota limit (confirmed in result or pane), close it (`close <id>`) and immediately dispatch a fresh task to another configured worker in the active config without interrupting the workflow, disclosing the switch in your report. Close only `agent-workers` panes via `close`.
 
 ## Run agent-workers
 
@@ -51,7 +51,8 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 
 1. Inspect [recorded backend](references/lifecycle.md#problem-recovery) (`list --verbose`) before closing.
 2. Report task, state, submission, pane text. Require fresh `verify-viewer <id>` (`viewer_verified: true`) before directing user to a core window (else report unconfirmed; do not direct them).
-3. Follow user decision: `submit` only for retained Rex/core `not_sent`; `wait --recheck` observes only; never resend `sent`/`unknown`; retry fresh.
+3. **Quota exhaustion:** If inspection confirms usage/quota exhaustion, `close <id>` and immediately launch a fresh task on another configured worker (no approval needed; disclose the switch). Stop and ask only if no other configured worker is available.
+4. **Other problems:** Follow user decision: `submit` only for retained Rex/core `not_sent`; `wait --recheck` observes only; never resend `sent`/`unknown`; retry fresh.
 
 ## Read when needed
 
