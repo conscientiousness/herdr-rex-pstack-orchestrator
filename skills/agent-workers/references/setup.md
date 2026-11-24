@@ -38,7 +38,7 @@ Run setup when the user asks, or when `agent-workers run` fails with `config_inv
 
 Ordinary shell callers may use `REX_SESSION` and `REX_BLOCK` when the block's process tree contains `agent-workers`. Set `REX_SERVER` only to a nondefault local Unix-socket server. Workers launch in separate `Workers` tabs (up to 4 blocks/tab) without stealing focus.
 
-For agent controllers or tools outside the caller's process tree, passing `--caller-text '<distinctive visible conversation text>'` (>= 16 chars) on `run` or `check` automatically scans live blocks running an expected harness in this cwd and accepts iff **exactly one** matches (failing closed with `caller_context_invalid` on 0 or >1 matches):
+For agent controllers or tools outside the caller's process tree, passing `--caller-text '<distinctive visible conversation text>'` (>= 16 chars; only the visible screen is matched, so choose text that stays on screen, such as the harness status line, not a message that tool output will scroll away) on `run` or `check` automatically scans live blocks running an expected harness in this cwd and accepts iff **exactly one** matches (failing closed with `caller_context_invalid` on 0 or >1 matches):
 
 ```bash
 python3 <skill-dir>/scripts/agent-workers.py run <worker> --brief <file> --cwd <worker-dir> \
@@ -81,9 +81,25 @@ Rex and core require native idle before submission, tracking `startup_ready`, `s
 Common pre-task trust dialogs (`agent-workers` reports `start_failed` and leaves the pane open for the user to clear once):
 
 - **Codex:** "Trust this folder?" per untrusted git root (trusted parent does not cover nested repos; worktrees of a trusted repo are covered).
-- **Claude Code:** First-time folder trust; also "Allow external CLAUDE.md file imports?" when cwd is under a project whose `CLAUDE.md` uses `@` imports.
-- **Pi 1.1.0:** "Trust project folder?" when an untrusted dir or ancestor has project resources (even an empty `.agents/skills`). Because Herdr 0.9.3 can misclassify this as idle, legacy `agent-workers` requires the Pi integration session signal before sending. Trust is path-based (worktrees outside trusted paths may prompt). Only the user may add `--approve` or `--no-approve` to worker `args`—never add them automatically.
+- **Claude Code:** First-time folder trust; also "Allow external CLAUDE.md file imports?" when cwd is under a project whose `CLAUDE.md` uses `@` imports. Every task also passes its new task dir via `--add-dir`, which shows "Adding a new directory" on each task (even with `--permission-mode auto`; `permissions.additionalDirectories` does not suppress it). "Yes, add it" lasts one session, and the default option exits the worker. Once per machine, the user trusts the tasks root so every task dir below it is covered: `mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/herdr-orchestrator/tasks"`, start `claude` there, accept trust, and `/exit`.
+- **Pi 1.1.0:** "Trust project folder?" when an untrusted dir or ancestor has project resources (even an empty `.agents/skills`). Because Herdr 0.9.3 can misclassify this as idle, legacy `agent-workers` requires the Pi integration session signal before sending. Trust is path-based and ignores git worktree links, so create worktrees inside the trusted main checkout (see [Worktree placement](#worktree-placement)). Only the user may add `--approve` or `--no-approve` to worker `args`—never add them automatically.
 - **Antigravity CLI (`agy`):** "Do you trust the contents of this project?" (saved under `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`). Natively reports `blocked` via OSC 7501, so `agent-workers` leaves `start_failed` with `submission: "not_sent"`.
+
+## Worktree placement
+
+Create each writer's worktree at `<main checkout>/.worktrees/<name>`, excluded locally so nothing is committed:
+
+```bash
+root=$(git rev-parse --show-toplevel)
+grep -qxF '.worktrees/' "$root/.git/info/exclude" || echo '.worktrees/' >> "$root/.git/info/exclude"
+git worktree add "$root/.worktrees/<name>" -b <branch>
+```
+
+This depends only on the main checkout being trusted, so it works on any machine. Measured with Pi 1.5.2 and Claude Code 2.1.331: neither prompts there. Pi prompts for a worktree outside trusted paths (e.g., `/tmp`), and loads the worktree's own `AGENTS.md` rather than the main checkout's.
+
+## First run on a new machine
+
+Start each harness once by hand in a trusted checkout and let it finish startup. On first launch Pi downloads `fd` and `ripgrep`; a task sent during that download stays in the input box (`not_started`, `submission: "sent"`) and must not be resent.
 
 ## Reviewing configured workers
 

@@ -24,7 +24,7 @@ Loaded by installed pstack skills before upstream text. Read [agent-workers](../
 | `poteto-agent` / `comment-sicko` | Pass absolute path to [poteto-agent](references/agents/poteto-agent.md) or [comment-sicko](references/agents/comment-sicko.md) (+ `../poteto-mode/SKILL.md` for `poteto-agent`). Instructions only, not worker choice. First-output rules: [herdr-tools.md](references/herdr-tools.md). |
 | `generalPurpose` | Selected worker + upstream prompt; no native registration. |
 | `readonly: true` | Scoped reads; writes only to declared reports + `result.json` in task dir. Verify checkout/external state. |
-| Isolated writer | Separate git worktree per concurrent writer (`--cwd`). |
+| Isolated writer | Separate git worktree per concurrent writer at `<main checkout>/.worktrees/<name>` (`--cwd`), so it inherits the checkout's harness trust. |
 | `pstack/skills/<n>/`, `cursor-team-kit/skills/<n>/` | Sibling `<n>/` dir; absolute paths for commands/scripts. |
 | `Read`/`Glob`/`Grep`/edits/shell, `AskQuestion`, todos | Harness tools (or chat question / uncommitted checklist). |
 | `setup-pstack`, Cursor rules | `agent-workers` setup + `[roles]` in `workers.toml`. |

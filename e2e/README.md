@@ -18,7 +18,9 @@ tab keeps focus. The workers produce separate ledger outputs while still working
 `agent-workers` withholds both results until Rex reports the end of the turn, verifies
 delivery, and removes the owned blocks. The driver also checks that mixed
 controller hints are rejected, stale Rex environment has no effect on task IDs
-pinned at dispatch, and the unrelated session stays intact.
+pinned at dispatch, and the unrelated session stays intact. The fixture's
+interpreter is only on the controller's `PATH`, not the Rex server's, as with a
+GUI-started Rex and mise-managed Node for Pi; workers must inherit the controller's `PATH`.
 
 The printed `evidence.json` contains a rerun command, assertions and server
 cleanup. The workers are deterministic fixtures. This driver uses a real Rex

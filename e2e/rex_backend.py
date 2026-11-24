@@ -126,11 +126,17 @@ class Scenario:
                     if not key.startswith(MUX_PREFIXES) and key not in AGENT_SESSION_KEYS}
         bindir = root / "bin"
         bindir.mkdir()
+        # Like mise's node for Pi: the worker runtime is only on the controller's PATH,
+        # never on the Rex server's PATH (a GUI-started server lacks shell shims).
+        runtime = root / "controller-runtime"
+        runtime.mkdir()
+        (runtime / "fixture-node").symlink_to(Path(sys.executable).resolve())
         self.env.update(PATH=str(bindir) + os.pathsep + os.defpath,
                         XDG_CONFIG_HOME=str(root / "config"), XDG_STATE_HOME=str(root / "state"))
+        self.controller_path = str(runtime) + os.pathsep + self.env["PATH"]
         (bindir / "rex").symlink_to(Path(rex).resolve())
         fixture = bindir / "pi"
-        fixture.write_text(f"#!{sys.executable}\n" + FIXTURE)
+        fixture.write_text("#!/usr/bin/env fixture-node\n" + FIXTURE)
         fixture.chmod(0o700)
         for name in ("herdr", "herdr-core", "hc"):
             guard = bindir / name
@@ -183,7 +189,7 @@ class Scenario:
         other, _, other_block = self.session("unrelated", "/bin/sleep", "300")
         baseline = self.windows(other)
         session, controller_window, controller_block = self.session(
-            "project", "/usr/bin/env", f"REX_SERVER={self.endpoint}", f"PATH={self.env['PATH']}", sys.executable,
+            "project", "/usr/bin/env", f"REX_SERVER={self.endpoint}", f"PATH={self.controller_path}", sys.executable,
             str(Path(__file__).resolve()), "--horch", str(self.args.horch), "--controller", str(self.root))
         observed = self.until_file(self.root / "controller.json", 200)
         if observed.get("error"):
