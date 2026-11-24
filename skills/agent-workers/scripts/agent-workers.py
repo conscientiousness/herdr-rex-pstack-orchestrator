@@ -952,6 +952,7 @@ def require_caller_context(claimed=None, caller_text=None):
                  "conversation's visible screen.")
         needle = " ".join(caller_text.split())
         matches = []
+        checked = 0
         for candidate in herdr_path(herdr("pane", "list", timeout=30.0), "result", "panes"):
             candidate_id = candidate.get("pane_id") if isinstance(candidate, dict) else None
             if not isinstance(candidate_id, str) or not candidate_id.strip():
@@ -983,12 +984,14 @@ def require_caller_context(claimed=None, caller_text=None):
                 if herdr_error_code(exc) in MISSING_PANE_CODES:
                     continue
                 raise
+            checked += 1
             if needle in " ".join(text.split()):
                 matches.append((candidate_pane, candidate_info, text))
         if len(matches) != 1:
             fail("caller_context_invalid",
                  f"Conversation text must match exactly one live controller pane in this cwd; "
-                 f"matching panes: {[m[0]['pane_id'] for m in matches]}. {guidance}")
+                 f"checked {checked} candidate pane(s), matching panes: {[m[0]['pane_id'] for m in matches]} "
+                 f"(prefer unwrapped plain text such as the status line). {guidance}")
         pane, info, screen = matches[0]
         return caller_verification(pane, info, "conversation_text", screen)
 
@@ -1098,6 +1101,17 @@ def rex_foreground_harness(process, expected):
                for key in ("name", "argv0", "invoked_path"))
 
 
+def _rex_screen_matches(binding, block_id, needle):
+    """Match caller text against visible screen, falling back to soft-unwrapped lines."""
+    screen = rex.capture(binding, block_id, visible=True)
+    if needle in " ".join(screen.split()):
+        return True, screen
+    unwrapped = rex.capture(binding, block_id, visible=True, unwrap=True)
+    if needle in " ".join(unwrapped.split()):
+        return True, unwrapped
+    return False, screen
+
+
 def require_rex_context(claimed, caller_text):
     """Prove the caller with its local process tree or conversation screen evidence."""
     guidance = ("Confirm the controller's full Rex block ID or pass --caller-text <unique visible conversation text>. "
@@ -1116,6 +1130,7 @@ def require_rex_context(claimed, caller_text):
         blocks = rex.blocks(base_binding, all_sessions=True)
         needle = " ".join(caller_text.split())
         matches = []
+        checked = 0
         for candidate in blocks:
             if (not candidate.get("window_id") or candidate.get("host_id") != base_binding["host_id"]
                     or candidate.get("creator_name") != rex.TERMINAL):
@@ -1132,17 +1147,19 @@ def require_rex_context(claimed, caller_text):
             if not _same_cwd(candidate_cwd, cwd) or not rex_foreground_harness(candidate_process, expected):
                 continue
             try:
-                screen = rex.capture(candidate_binding, candidate_id, visible=True)
+                matched, screen = _rex_screen_matches(candidate_binding, candidate_id, needle)
             except rex.RexError as exc:
                 if exc.kind == "target_not_found":
                     continue
                 raise
-            if needle in " ".join(screen.split()):
+            checked += 1
+            if matched:
                 matches.append((candidate, candidate_binding, candidate_process, screen))
         if len(matches) != 1:
             fail("caller_context_invalid",
                  f"Conversation text must match exactly one Rex controller block in this cwd; "
-                 f"matches: {[m[0]['block_id'] for m in matches]}. {guidance}")
+                 f"checked {checked} candidate block(s), matches: {[m[0]['block_id'] for m in matches]} "
+                 f"(prefer unwrapped plain text such as the status line). {guidance}")
         caller, binding, process, screen = matches[0]
         block_id = caller["block_id"]
         child, foreground = process.get("child") or {}, process.get("foreground") or {}
@@ -1192,8 +1209,8 @@ def require_rex_context(claimed, caller_text):
             if (not _same_cwd(candidate_cwd, cwd)
                     or not rex_foreground_harness(candidate_process, expected)):
                 continue
-            screen = rex.capture(candidate_binding, candidate_id, visible=True)
-            if needle in " ".join(screen.split()):
+            matched, screen = _rex_screen_matches(candidate_binding, candidate_id, needle)
+            if matched:
                 matches.append(candidate_id)
                 if candidate_id == block_id:
                     screen_hash = hashlib.sha256(screen.encode()).hexdigest()
@@ -1398,6 +1415,11 @@ def cmd_verify_viewer(args):
     emit({"task_id": args.task_id, **viewer_fields(task)})
 
 
+def _has_dismissible_overlay(screen):
+    """Detect agy modal banners (e.g. 'esc to dismiss') that eat input while reporting idle."""
+    return "esc to dismiss" in " ".join(screen.split()).lower()
+
+
 def submit_core_task(directory, task, state):
     binding = task["backend"]
     try:
@@ -1405,6 +1427,10 @@ def submit_core_task(directory, task, state):
         baseline = terminal.get("turn")
         if isinstance(baseline, bool) or not isinstance(baseline, int) or baseline < 0:
             raise core.CoreError("native turn baseline missing; no task was sent")
+        if task.get("harness") == "agy":
+            screen = core.call(binding, "terminal.read", terminal=binding["terminal"], lines=0)["text"]
+            if _has_dismissible_overlay(screen):
+                raise core.CoreError("agy startup banner or modal overlay detected ('esc to dismiss'); no task was sent")
         state.update(startup_ready=True, native_status=core.status(terminal), baseline_seq=baseline,
                      state="not_started", problem=None, submission="unknown")
         save_state(directory, state)
@@ -1508,6 +1534,10 @@ def submit_rex_task(directory, task, state):
     binding = task["backend"]
     try:
         baseline = rex_ready(binding)
+        if task.get("harness") == "agy":
+            screen = rex.capture(binding, binding["block"], visible=True)
+            if _has_dismissible_overlay(screen):
+                raise rex.RexError("agy startup banner or modal overlay detected ('esc to dismiss')", "not_sent")
         state.update(startup_ready=True, native_status="idle", baseline_status_at=baseline["updated_at"],
                      baseline_status_owner=baseline["owner"],
                      state="not_started", problem=None, submission="unknown")
