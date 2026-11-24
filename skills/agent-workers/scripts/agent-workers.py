@@ -43,6 +43,9 @@ ALL_HARNESS_PROCESS_NAMES = {name for names in HARNESS_PROCESS_NAMES.values() fo
 CONFIG_TOP_KEYS = {"max_active_workers", "notify_after_minutes", "workers", "roles"}
 WORKER_KEYS = {"harness", "model", "provider", "effort", "args", "description"}
 WORKER_NAME_RE = re.compile(r"[a-z][a-z0-9-]{0,15}")
+PROFILE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+CONFIG_PROFILE_ENV = "AGENT_WORKERS_PROFILE"
+CONFIG_PATH_ENV = "AGENT_WORKERS_CONFIG"
 TASK_ID_RE = re.compile(r"t-[0-9a-f]{6}")
 MISSING_PANE_CODES = {"pane_not_found", "tab_not_found", "workspace_not_found"}
 # Session IDs a controller harness exports to its tool commands.
@@ -215,10 +218,77 @@ def herdr_id(doc, *path, id_key):
 
 
 # Keep this storage namespace for upgrades from the herdr-orchestrator skill.
-def config_path():
+def config_dir():
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base).expanduser() if base else Path.home() / ".config"
-    return root / "herdr-orchestrator" / "workers.toml"
+    return root / "herdr-orchestrator"
+
+
+def config_path(profile=None, config=None):
+    if profile is not None and config is not None:
+        fail("config_invalid", "cannot pass both --profile and --config")
+    if config is not None:
+        if not isinstance(config, str) or not config.strip():
+            fail("config_invalid", "--config must be a non-empty file path")
+        return Path(config).expanduser().resolve()
+    if profile is not None:
+        if not isinstance(profile, str) or not PROFILE_NAME_RE.fullmatch(profile):
+            fail(
+                "config_invalid",
+                f"invalid profile name {profile!r}; must match [a-z0-9][a-z0-9-]{{0,31}}",
+            )
+        return config_dir() / f"workers.{profile}.toml"
+    return config_dir() / "workers.toml"
+
+
+def resolve_config(args):
+    """Resolve (path, profile) from CLI flags, env vars, or default workers.toml."""
+    cli_config = getattr(args, "config", None)
+    cli_profile = getattr(args, "profile", None)
+    if cli_config is not None and cli_profile is not None:
+        fail("config_invalid", "cannot pass both --profile and --config")
+    if cli_config is not None:
+        return config_path(config=cli_config), None
+    if cli_profile is not None:
+        return config_path(profile=cli_profile), cli_profile
+    env_config = os.environ.get(CONFIG_PATH_ENV)
+    env_profile = os.environ.get(CONFIG_PROFILE_ENV)
+    if env_config and env_profile:
+        fail(
+            "config_invalid",
+            f"both {CONFIG_PATH_ENV} and {CONFIG_PROFILE_ENV} are set; "
+            "unset one or pass --config/--profile",
+        )
+    if env_config:
+        return config_path(config=env_config), None
+    if env_profile:
+        return config_path(profile=env_profile), env_profile
+    return config_path(), None
+
+
+def list_profiles():
+    """Return sorted valid profile names from workers.<name>.toml, or None if unreadable."""
+    directory = config_dir()
+    try:
+        entries = list(directory.iterdir())
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
+    profiles = []
+    for entry in entries:
+        name = entry.name
+        if not (name.startswith("workers.") and name.endswith(".toml")):
+            continue
+        profile = name[len("workers."):-len(".toml")]
+        if not PROFILE_NAME_RE.fullmatch(profile):
+            continue
+        try:
+            if entry.is_file():
+                profiles.append(profile)
+        except OSError:
+            continue
+    return sorted(profiles)
 
 
 def tasks_root():
@@ -485,33 +555,40 @@ def task_capacity(workspace_id, binding=None):
 # ---------------------------------------------------------------------------
 
 
-def load_config():
-    path = config_path()
+def load_config(path=None, *, profile=None):
+    path = config_path(profile=profile) if path is None else Path(path)
     try:
         st = path.stat()
     except PermissionError:
         fail(
             "config_invalid",
-            f"cannot access workers.toml at {path} (permission denied; if running inside a "
+            f"cannot access {path.name} at {path} (permission denied; if running inside a "
             "terminal sandbox, rerun agent-workers outside the sandbox)",
         )
     except FileNotFoundError:
+        extra = ""
+        if profile is not None:
+            available = list_profiles()
+            if available:
+                extra = f" (available profiles: {', '.join(available)})"
+            elif available == []:
+                extra = " (no profiles found in config directory)"
         fail(
             "config_invalid",
-            f"workers.toml not found at {path} (if running inside a terminal sandbox that "
+            f"{path.name} not found at {path}{extra} (if running inside a terminal sandbox that "
             "restricts access outside the workspace, rerun agent-workers outside the sandbox "
             "before assuming setup is missing)",
         )
     except OSError as exc:
         fail("config_invalid", f"cannot access {path}: {exc}")
     if not stat.S_ISREG(st.st_mode):
-        fail("config_invalid", f"workers.toml is not a regular file at {path}")
+        fail("config_invalid", f"{path.name} is not a regular file at {path}")
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except PermissionError:
         fail(
             "config_invalid",
-            f"cannot read workers.toml at {path} (permission denied; if running inside a "
+            f"cannot read {path.name} at {path} (permission denied; if running inside a "
             "terminal sandbox, rerun agent-workers outside the sandbox)",
         )
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
@@ -519,7 +596,7 @@ def load_config():
 
     unknown = sorted(set(data) - CONFIG_TOP_KEYS)
     if unknown:
-        fail("config_invalid", f"unknown top-level keys in workers.toml: {', '.join(unknown)}")
+        fail("config_invalid", f"unknown top-level keys in {path.name}: {', '.join(unknown)}")
 
     def int_key(key, default, minimum):
         value = data.get(key, default)
@@ -571,7 +648,8 @@ def load_config():
             "description": spec.get("description"),
         }
     return {"max_active_workers": max_active, "notify_after_minutes": notify_minutes,
-            "workers": workers, "roles": data.get("roles", {})}
+            "workers": workers, "roles": data.get("roles", {}),
+            "config_path": str(path), "profile": profile}
 
 
 # ---------------------------------------------------------------------------
@@ -1144,7 +1222,8 @@ def dispatch_context(args):
 
 def cmd_run(args):
     caller, binary = dispatch_context(args)
-    config = load_config()
+    cfg_path, cfg_profile = resolve_config(args)
+    config = load_config(cfg_path, profile=cfg_profile)
     if args.brief == "-":
         brief_text = sys.stdin.read()
         if not brief_text.strip():
@@ -1485,7 +1564,7 @@ def _refresh_herdr_caller(caller):
 def start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller):
     worker = config["workers"].get(worker_name)
     if worker is None:
-        fail("unknown_worker", f"no worker named {worker_name!r} in {config_path()}")
+        fail("unknown_worker", f"no worker named {worker_name!r} in {config.get('config_path') or config_path()}")
     program = shutil.which(worker["harness"])
     if not program:
         fail("rex_error", f"configured harness {worker['harness']} is not installed")
@@ -1512,6 +1591,7 @@ def start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller):
         binding = dict(context, window=None, block=None, label=label, harness=worker["harness"])
         task = {"task_id": task_id, "nonce": nonce, "worker": worker_name,
                 "harness": worker["harness"], "model": worker["model"], "cwd": str(cwd),
+                "config_path": config.get("config_path"), "profile": config.get("profile"),
                 "task_dir": str(directory), "brief_path": str(directory / "brief.md"),
                 "result_path": str(directory / "result.json"), "agent": agent,
                 "pane_id": binding["label"], "argv": argv, "created_at": iso_now(), "backend": binding,
@@ -1562,7 +1642,7 @@ def start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller):
 def start_core_task(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text, binding, caller=None):
     worker = config["workers"].get(worker_name)
     if worker is None:
-        fail("unknown_worker", f"no worker named {worker_name!r} in {config_path()}")
+        fail("unknown_worker", f"no worker named {worker_name!r} in {config.get('config_path') or config_path()}")
     if caller is None and (caller_pane is not None or caller_text is not None or has_herdr_context()):
         caller = core_caller_context(caller_pane, caller_text)
     with task_store_lock():
@@ -1584,6 +1664,7 @@ def start_core_task(config, worker_name, brief_text, cwd, skip_if_full, caller_p
         binding = dict(binding, terminal="horch-" + task_id[2:], name="horch-" + task_id[2:], nonce=nonce)
         task = {"task_id": task_id, "nonce": nonce, "worker": worker_name,
                 "harness": worker["harness"], "model": worker["model"], "cwd": str(cwd),
+                "config_path": config.get("config_path"), "profile": config.get("profile"),
                 "task_dir": str(directory), "brief_path": str(directory / "brief.md"),
                 "result_path": str(directory / "result.json"), "agent": binding["name"],
                 "pane_id": binding["terminal"], "argv": argv, "created_at": iso_now(),
@@ -1681,7 +1762,7 @@ def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller
     """Start one legacy Herdr worker on one task and return the run object; fail() on contract errors."""
     worker = config["workers"].get(worker_name)
     if worker is None:
-        fail("unknown_worker", f"no worker named {worker_name!r} in {config_path()}")
+        fail("unknown_worker", f"no worker named {worker_name!r} in {config.get('config_path') or config_path()}")
     if caller is None:
         caller = require_caller_context(caller_pane, caller_text)
 
@@ -1731,6 +1812,8 @@ def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller
             "harness": worker["harness"],
             "model": worker["model"],
             "cwd": str(cwd),
+            "config_path": config.get("config_path"),
+            "profile": config.get("profile"),
             "task_dir": str(directory),
             "brief_path": str(directory / "brief.md"),
             "result_path": str(directory / "result.json"),
@@ -2110,7 +2193,8 @@ def make_info(task_id):
 
 
 def cmd_wait(args):
-    config = load_config()
+    cfg_path, cfg_profile = resolve_config(args)
+    config = load_config(cfg_path, profile=cfg_profile)
     if args.recheck and not args.task_ids:
         fail("invalid_arguments", "wait --recheck requires explicit task IDs")
     if args.task_ids:
@@ -2224,7 +2308,8 @@ def cmd_stats(args):
         cutoff = now - timedelta(days=args.days) if args.days is not None else None
     except (ValueError, OverflowError):
         fail("invalid_arguments", "--days must be a positive integer within datetime range")
-    config = load_config()
+    cfg_path, cfg_profile = resolve_config(args)
+    config = load_config(cfg_path, profile=cfg_profile)
     roles = config["roles"]
     if not isinstance(roles, dict):
         fail("config_invalid", "[roles] must be a table")
@@ -2356,6 +2441,8 @@ def cmd_stats(args):
                 "share": count / len(timings) if timings else None}
 
     emit({
+        "config_path": str(cfg_path),
+        "profile": cfg_profile,
         "scope": {"workspace_id": args.workspace, "days": args.days,
                   "created_since": cutoff.isoformat().replace("+00:00", "Z") if cutoff else None},
         "task_count": sum(row["task_count"] for row in workers.values()),
@@ -2434,7 +2521,8 @@ def _resolve_role_entry(role_name, assigned, workers):
 
 
 def cmd_roles(args):
-    config = load_config()
+    cfg_path, cfg_profile = resolve_config(args)
+    config = load_config(cfg_path, profile=cfg_profile)
     roles_raw = config["roles"]
     if not isinstance(roles_raw, dict):
         fail("config_invalid", "[roles] must be a table")
@@ -2465,8 +2553,10 @@ def cmd_roles(args):
             else:
                 configured = ", ".join(sorted(resolved)) or "none"
                 fail("unknown_role",
-                     f"no role named {query!r} in {config_path()}; configured roles: {configured}")
+                     f"no role named {query!r} in {cfg_path}; configured roles: {configured}")
         emit({
+            "config_path": str(cfg_path),
+            "profile": cfg_profile,
             "role": matched_key,
             **resolved[matched_key],
             "max_active_workers": config["max_active_workers"],
@@ -2485,7 +2575,8 @@ def cmd_roles(args):
             summary["provider"] = spec["provider"]
         worker_summaries[name] = summary
     emit({
-        "config_path": str(config_path()),
+        "config_path": str(cfg_path),
+        "profile": cfg_profile,
         "max_active_workers": config["max_active_workers"],
         "roles": resolved,
         "workers": worker_summaries,
@@ -2521,6 +2612,8 @@ def cmd_list(args):
                 "worker": task.get("worker"),
                 "agent": task.get("agent"),
                 "pane_id": task.get("pane_id"),
+                "config_path": task.get("config_path"),
+                "profile": task.get("profile"),
                 "backend": task.get("backend", {"kind": "legacy"}),
                 "terminal_id": task["backend"]["terminal"] if is_core(task) else None,
                 **(rex_location(task["backend"]) if is_rex(task) else {}),
@@ -2661,6 +2754,7 @@ def herdr_server_version():
 
 def cmd_detect(args):
     family = controller_family(args)
+    cfg_path, cfg_profile = resolve_config(args)
     rex_controller = family == "rex"
     binary = None if rex_controller else core.executable()
     legacy = not rex_controller and binary is None
@@ -2677,18 +2771,24 @@ def cmd_detect(args):
         "harnesses": harnesses,
         "pi_providers": pi_providers() if harnesses["pi"] else [],
         "pi_integration": pi_integration_status() if legacy else {"status": "native", "version": None},
-        "config": {"path": str(config_path()), "exists": config_path().is_file()},
+        "config": {
+            "path": str(cfg_path),
+            "exists": cfg_path.is_file(),
+            "profile": cfg_profile,
+            "profiles": list_profiles(),
+        },
     })
 
 
 def cmd_check(args):
     caller, binary = dispatch_context(args)
     binding = core.new_binding(binary) if binary else caller.get("binding") if caller else None
-    config = load_config()
+    cfg_path, cfg_profile = resolve_config(args)
+    config = load_config(cfg_path, profile=cfg_profile)
     names = list(dict.fromkeys(args.workers or list(config["workers"])))
     unknown = [name for name in names if name not in config["workers"]]
     if unknown:
-        fail("unknown_worker", f"no worker named {', '.join(unknown)} in {config_path()}")
+        fail("unknown_worker", f"no worker named {', '.join(unknown)} in {cfg_path}")
     if binding is None and any(config["workers"][name]["harness"] == "pi" for name in names):
         require_pi_integration()
     cwd = resolve_cwd(args.cwd)
@@ -2769,6 +2869,12 @@ def add_caller_arguments(parser):
     parser.add_argument("--caller-text", help="unique visible conversation text for an agent controller")
 
 
+def add_config_arguments(parser):
+    cfg = parser.add_mutually_exclusive_group()
+    cfg.add_argument("--profile", help="named profile (loads workers.<profile>.toml)")
+    cfg.add_argument("--config", help="explicit path to a workers TOML file")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="agent-workers",
@@ -2781,6 +2887,7 @@ def build_parser():
     p_run.add_argument("--brief", required=True, help="path of the brief file for the worker, or '-' to read from stdin")
     p_run.add_argument("--cwd", help="working directory for the worker (default: the current directory)")
     add_caller_arguments(p_run)
+    add_config_arguments(p_run)
     p_run.set_defaults(func=cmd_run)
 
     p_wait = sub.add_parser("wait", help="wait until at least one waited task changes state (or all settle with --all)")
@@ -2788,6 +2895,7 @@ def build_parser():
     p_wait.add_argument("--all", action="store_true", help="wait until all targeted tasks settle/close, returning early on any problem or long_running state")
     p_wait.add_argument("--recheck", action="store_true", help="re-poll named unclosed problem tasks")
     p_wait.add_argument("--max-seconds", type=int, default=None, help="return after at most this many seconds")
+    add_config_arguments(p_wait)
     p_wait.set_defaults(func=cmd_wait)
 
     p_list = sub.add_parser("list", help="print tasks as JSON lines, oldest first")
@@ -2798,12 +2906,14 @@ def build_parser():
 
     p_roles = sub.add_parser("roles", help="resolve configured roles and worker metadata from workers.toml")
     p_roles.add_argument("role_name", nargs="?", default=None, help="optional role name or comma-separated role token to resolve")
+    add_config_arguments(p_roles)
     p_roles.set_defaults(func=cmd_roles)
 
     p_stats = sub.add_parser("stats", help="summarize stored worker performance without terminal commands or writes")
     p_stats.add_argument("--workspace", help="only tasks created in this Herdr workspace or Rex session")
     p_stats.add_argument("--days", type=int, help="only tasks created in the last n days")
     p_stats.add_argument("--no-samples", action="store_true", help="omit per-task duration_samples arrays")
+    add_config_arguments(p_stats)
     p_stats.set_defaults(func=cmd_stats)
 
     p_close = sub.add_parser("close", help="close the task's backend terminal and owned viewer")
@@ -2820,6 +2930,7 @@ def build_parser():
 
     p_detect = sub.add_parser("detect", help="print the controller route, installed harnesses, and Pi providers")
     add_caller_arguments(p_detect)
+    add_config_arguments(p_detect)
     p_detect.set_defaults(func=cmd_detect)
 
     p_check = sub.add_parser("check", help="start each worker on a tiny task and report whether it works")
@@ -2827,6 +2938,7 @@ def build_parser():
     p_check.add_argument("--cwd", help="working directory for the check workers (default: the current directory)")
     p_check.add_argument("--max-seconds", type=int, default=300, help="stop waiting after this many seconds (default: 300)")
     add_caller_arguments(p_check)
+    add_config_arguments(p_check)
     p_check.set_defaults(func=cmd_check)
 
     return parser
@@ -2860,7 +2972,7 @@ def cli():
     if sys.argv[1:2] == ["--exec-rex-worker"]:
         # The Rex server can inherit another controller's multiplexer and harness environment.
         keep = {key: value for key, value in os.environ.items()
-                if not key.startswith(("HERDR", "HC_", "ANTIGRAVITY_"))
+                if not key.startswith(("HERDR", "HC_", "ANTIGRAVITY_", "AGENT_WORKERS_"))
                 and key not in (*CONTROLLER_SESSION_ENV.values(), "PI_SESSION_ID", "CLAUDECODE")}
         keep["PATH"] = sys.argv[2]
         os.execve(sys.argv[3], sys.argv[3:], keep)

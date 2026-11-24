@@ -20,7 +20,7 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 
 ## Run agent-workers
 
-`python3 <skill-dir>/scripts/agent-workers.py <cmd> ...` (Python 3.11+, JSON stdout, errors exit 1 `{"error","message"}`). Tasks pin backend—wait Rex/Herdr separately. `run`/`detect`/`check` accept caller opts.
+`python3 <skill-dir>/scripts/agent-workers.py <cmd> ...` (Python 3.11+, JSON stdout, errors exit 1 `{"error","message"}`). Tasks pin backend—wait Rex/Herdr separately. `run`/`detect`/`check` accept caller opts. `run`/`roles`/`stats`/`detect`/`check`/`wait` accept `--profile <name>` (`workers.<name>.toml`) or `--config <path>` (mutually exclusive; env: `AGENT_WORKERS_PROFILE` / `AGENT_WORKERS_CONFIG`, overridden by CLI).
 
 | Command | Purpose |
 |---|---|
@@ -39,7 +39,7 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 
 ## Delegate and verify
 
-1. **Select & isolate:** Role-first (`roles`), else `description`. Separate git worktree per writer at `<main checkout>/.worktrees/<name>` (`--cwd`; [placement](references/setup.md#worktree-placement)); read-only workers may share checkout (writes only to declared reports + `result.json` in task dir).
+1. **Select & isolate:** Role-first (`roles`), else `description`. When the user specifies a profile/config, pass the same `--profile`/`--config` consistently to `roles`, `run`, `wait`, `check`, and `stats`; if the requested file is missing (outside a sandbox), report failure and never silently fall back to default `workers.toml`. Separate git worktree per writer at `<main checkout>/.worktrees/<name>` (`--cwd`; [placement](references/setup.md#worktree-placement)); read-only workers may share checkout (writes only to declared reports + `result.json` in task dir).
 2. **Brief:** Goal, criteria, PR-first limit, absolute paths, ownership, verification, outputs, commit rule (`agent-workers` appends rules/schema).
 3. **Dispatch:** Start up to `max_active_workers` in parallel before waiting. On core viewer failure, report `warning` + `viewer_verification_error` immediately while monitoring.
 4. **Wait & read:** Unbounded `wait` (`--all` for batches) in background/yielded shells (Claude Code, `agy`, Codex); `--max-seconds 300` (timeout >300s) in blocking-only shells (Pi); never `--max-seconds 1`. Report `long_running` once; never cancel to end wait. On `done`, check `result_status`, read `result_path`/`files` (relative to result dir), relay `blocked` `question`; follow-ups are fresh tasks.

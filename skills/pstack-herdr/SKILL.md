@@ -32,8 +32,9 @@ Loaded by installed pstack skills before upstream text. Read [agent-workers](../
 
 ## Resolve roles
 
-Run `agent-workers roles [<role>]` (`workers.toml`). Ignore Cursor model sheets, `# defaults: 3`, and upstream effort/speed/fallback rules.
+Run `agent-workers roles [<role>]` (`workers.toml`, or pass `--profile <name>` / `--config <path>`). Ignore Cursor model sheets, `# defaults: 3`, and upstream effort/speed/fallback rules.
 
+- **Profile consistency:** If the user specifies a worker profile/config, pass the same `--profile <name>` (or `--config <path>`) to `agent-workers roles` and all subsequent `run`, `wait`, `check`, and `stats` calls in that workflow, and record the profile/config in brief provenance. If the requested file is missing outside a sandbox, stop and report failure rather than falling back to `workers.toml`.
 - **Role-first:** Classify every assignment (incl. ad-hoc). Match a role first (`how explainer`, `feature, refactoring`, `how explorer`/`why investigators` for ad-hoc/Recall); else pick via `description`.
 - **No silent substitution or inline fallback:** Never assume worker names, substitute defaults/`auto`/`inherit-parent`/native subagents/auto-retries, or silently do delegated implementation/review inline in the main conversation. On `config_invalid` inside a sandboxed controller (e.g., `agy`), retry `agent-workers` outside the sandbox first; if a role or worker is still missing/invalid, stop and complete setup with the user.
 - **Single vs panel:** Single -> one worker (`"glm"`). Panel (`interrogate reviewers`, `arena runners`) -> list (`["ds", "haiku"]` or `["solo", "solo"]`), one fresh task per entry; same-model != cross-model validation (disclose gaps).
