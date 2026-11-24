@@ -181,7 +181,7 @@ def block_process(binding, block_id):
     return result
 
 
-def capture(binding, block_id, *, visible=False):
+def capture(binding, block_id, *, visible=False, unwrap=False):
     _check_server(binding)
     if not full_id(block_id, "block"):
         raise RexError("Rex capture requires a full block ID", "invalid_target")
@@ -189,8 +189,10 @@ def capture(binding, block_id, *, visible=False):
         rows = _block_method(binding, block_id, "size").get("rows")
         if type(rows) is not int or rows <= 0:
             raise RexError("Rex did not report the terminal's screen size")
-    text = _cli(binding, "capture", "-s", binding["session"], "-b", block_id,
-                operation="capture", expect_json=False)
+    args = ["capture", "-s", binding["session"], "-b", block_id]
+    if unwrap:
+        args.append("--unwrap")
+    text = _cli(binding, *args, operation="capture", expect_json=False)
     # Rex returns screen and scrollback together on the primary screen.
     return "\n".join(text.removesuffix("\n").split("\n")[-rows:]) if visible else text
 

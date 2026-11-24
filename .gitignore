@@ -126,3 +126,4 @@ e2e/evidence/*
 !e2e/evidence/upstream-cleanup-recovery.json
 !e2e/config_profiles.py
 !e2e/run_wait.py
+!e2e/startup_guards.py
