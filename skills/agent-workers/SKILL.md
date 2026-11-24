@@ -35,11 +35,11 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 
 **Sandboxed controllers (`agy`, `codex`):** `agent-workers` accesses `~/.config/herdr-orchestrator/`, `~/.local/state/herdr-orchestrator/`, and local Rex/Herdr sockets outside the workspace. If a sandboxed call fails with `config_invalid`, permission, or backend socket errors, rerun `agent-workers` outside the sandbox (e.g., `BypassSandbox: true` in `agy`) before assuming setup is missing.
 
-**Caller context:** Pass `--caller-text '<16+ unique visible chars>'` on `run`/`check` to auto-resolve the unique Rex block/Herdr pane (fails closed on 0/>1); add `--caller-block`/`--caller-pane` to disambiguate. Focus/inherited IDs never prove location ([setup.md#caller-context](references/setup.md#caller-context)).
+**Caller context:** Pass `--caller-text '<16+ unique visible chars>'` (prefer text fixed on screen, e.g. the status line) on `run`/`check` to auto-resolve the unique Rex block/Herdr pane (fails closed on 0/>1); add `--caller-block`/`--caller-pane` to disambiguate. Focus/inherited IDs never prove location ([setup.md#caller-context](references/setup.md#caller-context)).
 
 ## Delegate and verify
 
-1. **Select & isolate:** Role-first (`roles`), else `description`. Separate git worktree per writer (`--cwd`); read-only workers may share checkout (writes only to declared reports + `result.json` in task dir).
+1. **Select & isolate:** Role-first (`roles`), else `description`. Separate git worktree per writer at `<main checkout>/.worktrees/<name>` (`--cwd`; [placement](references/setup.md#worktree-placement)); read-only workers may share checkout (writes only to declared reports + `result.json` in task dir).
 2. **Brief:** Goal, criteria, PR-first limit, absolute paths, ownership, verification, outputs, commit rule (`agent-workers` appends rules/schema).
 3. **Dispatch:** Start up to `max_active_workers` in parallel before waiting. On core viewer failure, report `warning` + `viewer_verification_error` immediately while monitoring.
 4. **Wait & read:** Unbounded `wait` (`--all` for batches) in background/yielded shells (Claude Code, `agy`, Codex); `--max-seconds 300` (timeout >300s) in blocking-only shells (Pi); never `--max-seconds 1`. Report `long_running` once; never cancel to end wait. On `done`, check `result_status`, read `result_path`/`files` (relative to result dir), relay `blocked` `question`; follow-ups are fresh tasks.
@@ -53,5 +53,5 @@ Controller: plan, assign, verify; delegate substantial work to fresh workers via
 
 ## Read when needed
 
-- [setup.md](references/setup.md): setup (`workers.toml`, `config_invalid`, 1 question/turn), permissions, dialogs, caller context.
+- [setup.md](references/setup.md): setup (`workers.toml`, `config_invalid`, 1 question/turn), permissions, dialogs (read on any `start_failed`), worktree placement, caller context.
 - [lifecycle.md](references/lifecycle.md): states/internals/recovery | [stats.md](references/stats.md): metrics | [workers.example.toml](references/workers.example.toml) (state: `$XDG_STATE_HOME/herdr-orchestrator/tasks/`).

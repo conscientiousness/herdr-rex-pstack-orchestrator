@@ -1522,7 +1522,9 @@ def start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller):
         state.update(state="starting", submission="not_sent")
         write_json(directory / "state.json", state)
         write_json(directory / "task.json", task)
-        command = [sys.executable, str(Path(__file__).resolve()), "--exec-rex-worker", os.path.abspath(program), *argv]
+        # The Rex server's PATH can lack the controller's shims (e.g. mise node for Pi).
+        command = [sys.executable, str(Path(__file__).resolve()), "--exec-rex-worker",
+                   os.environ.get("PATH", os.defpath), os.path.abspath(program), *argv]
         try:
             try:
                 placement = rex.launch(binding, caller["window_id"], windows, command, cwd, PANES_PER_TAB)
@@ -2860,7 +2862,8 @@ def cli():
         keep = {key: value for key, value in os.environ.items()
                 if not key.startswith(("HERDR", "HC_", "ANTIGRAVITY_"))
                 and key not in (*CONTROLLER_SESSION_ENV.values(), "PI_SESSION_ID", "CLAUDECODE")}
-        os.execve(sys.argv[2], sys.argv[2:], keep)
+        keep["PATH"] = sys.argv[2]
+        os.execve(sys.argv[3], sys.argv[3:], keep)
     main()
 
 
