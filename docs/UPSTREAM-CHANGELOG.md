@@ -2,6 +2,12 @@
 
 Historical sync notes for [Lauren Tan's original pstack](https://github.com/cursor/plugins/tree/main/pstack) (`cursor/plugins`). For the current bundle pin, install command, exclusions, and runtime mapping, see [compatibility.md](../skills/pstack-herdr/references/compatibility.md).
 
+## 0.15.48 (`005d8f6`)
+
+The [0.15.48 update](https://github.com/cursor/plugins/compare/fbb86c09bbb4a25e490aaed136899ced1e9140e4...005d8f6e8ec057b738adcd08a08b30db0478402d) includes 0.15.47 and adds `reframe`, an explicit-only skill (`/reframe`) that teaches expert terms for what the operator is building, borrows terms from neighboring fields, and rewrites the description with them. It dispatches no workers, so it is copied byte for byte with no adaptation. Upstream also lists it in `poteto-help` (still excluded), the README, and the guide, which stay outside the bundle. Workflow steps, delegation, and worker roles are unchanged.
+
+Verification: regeneration matched the committed `skills/`. A local install for Claude Code, Codex, Pi, and Antigravity CLI kept all 61 entries and 651 files, and all 61 appeared in the Pi 1.5.2 and Codex 0.172.0 native catalogs without Codex errors (`e2e/skill_catalogs.py`). `/reframe` itself remains runtime unverified.
+
 ## 0.15.46 (`fbb86c0`)
 
 The [0.15.46 update](https://github.com/cursor/plugins/compare/2f87c854fe3e2fcda44ca86b46ede35aad3c46b7...fbb86c09bbb4a25e490aaed136899ced1e9140e4) updates the Gemini panel default in Arena and Poteto mode. Worker model and effort still come from `workers.toml`. Statechart adds a native Windows Node entry point, normalizes CRLF in TLC output, and handles worker process-tree cleanup on Windows.

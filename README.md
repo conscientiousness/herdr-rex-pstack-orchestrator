@@ -85,7 +85,7 @@ those settings. See [setup and configuration](skills/agent-workers/references/se
 
 ## Optional pstack workflows
 
-The full bundle includes selected original [pstack](https://github.com/cursor/plugins/tree/fbb86c09bbb4a25e490aaed136899ced1e9140e4/pstack)
+The full bundle includes selected original [pstack](https://github.com/cursor/plugins/tree/005d8f6e8ec057b738adcd08a08b30db0478402d/pstack)
 skills and an adapter that delegates through `agent-workers`. After installing
 the bundle and configuring workers, try:
 
