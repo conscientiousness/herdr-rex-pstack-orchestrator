@@ -31,6 +31,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from core_backend import fingerprint as core_fingerprint
 from worker_runtime import ALL_HARNESS_PROCESS_NAMES, CONTROLLER_SESSION_ENV, HARNESSES, WORKER_UNSET_ENV, worker_environment
 
 CONFIG_TOP_KEYS = {"max_active_workers", "notify_after_minutes", "workers", "roles"}
@@ -2064,7 +2065,34 @@ def ran_longer_than(task, minutes):
     return (datetime.now(timezone.utc) - started).total_seconds() > minutes * 60
 
 
-def evaluate_task(info, agent, config):
+def confirm_result_fallback(info, agent):
+    state, task = info["state"], info["task"]
+    if agent is None or agent.get("agent_status") is not None or not state["saw_working"]:
+        return False
+    # A valid result can also resolve an uncertain submission during evaluation.
+    if state["submission"] != "sent" and not (
+            state["submission"] == "unknown"
+            and (state["baseline_seq"] is not None or state["baseline_status_at"] is not None)):
+        return False
+    if not result_stable_for_fallback(info["dir"], task):
+        return False
+
+    try:
+        if is_core(task):
+            terminal = core.get(task["backend"])
+            return core_fingerprint(terminal) == core_fingerprint(info["terminal_observation"])
+        if is_rex(task):
+            terminal = rex.get(task["backend"])
+            return (terminal is not None and terminal["state"] == "live" and terminal["status"] is None
+                    and terminal["owner"] == agent["status_owner"])
+    except (core.CoreError, rex.RexError):
+        return False
+    current = (agent_index() or {}).get(task["agent"])
+    return (current is not None and current.get("agent_status") is None
+            and current.get("pane_id") == agent.get("pane_id"))
+
+
+def evaluate_task(info, agent, config, fallback_confirmed):
     state, task = info["state"], info["task"]
     if is_rex(task):
         if rex_status_advanced(state["completion_status_at"], state["baseline_status_at"]):
@@ -2121,7 +2149,7 @@ def evaluate_task(info, agent, config):
         state["state"] = "not_started"
         state["problem"] = "task submitted; execution acknowledgement not observed; inspect and use wait --recheck, never resend"
         return "not_started"
-    if (state["submission"] == "sent" and state["saw_working"]
+    if (fallback_confirmed and state["submission"] == "sent" and state["saw_working"]
             and status is None and result_stable_for_fallback(info["dir"], task)):
         state["state"] = "done"
         state["problem"] = None
@@ -2169,6 +2197,11 @@ def poll_round(infos, previous, config):
         directory = info["dir"]
         notice = None
         cleanup = False
+        task = info["task"]
+        agent = (observations.get(info["task_id"]) if is_core(task) or is_rex(task)
+                 else index.get(task["agent"]))
+        # Confirm just before the transaction. Backend calls must stay outside the lock.
+        fallback_confirmed = info["task_id"] in observing and confirm_result_fallback(info, agent)
         with task_state_lock(directory):
             state = load_state(directory)
             if info["state"]["state"] == "starting" and state["state"] != "starting":
@@ -2180,9 +2213,7 @@ def poll_round(infos, previous, config):
                     old_state in SETTLED_STATES and not info.pop("recheck", False)):
                 reported = old_state
             else:
-                agent = (observations.get(info["task_id"]) if is_core(info["task"]) or is_rex(info["task"])
-                         else index.get(info["task"]["agent"]))
-                reported = evaluate_task(info, agent, config)
+                reported = evaluate_task(info, agent, config, fallback_confirmed)
                 cleanup = reported == "done"
                 if reported == "long_running":
                     notice = (f"worker {info['task']['worker']} has run longer than "
