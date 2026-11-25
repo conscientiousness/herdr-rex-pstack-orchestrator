@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 ## Agent Workers runtime
 
-Read [pstack-adapter](../pstack-adapter/SKILL.md) first (overrides upstream tools, model defaults, setup, and Cursor paths). Resolve siblings via `../<name>/SKILL.md` and relative paths from this folder. Delegate only via `agent-workers` + `workers.toml`; no nested workers. User/project rules win; keep unavailable steps unresolved.
+Read [pstack-adapter](../pstack-adapter/SKILL.md) first. It overrides upstream tools, model defaults, setup, and Cursor paths. Load sibling skills from `../<name>/SKILL.md` and resolve relative paths from this folder. Delegate only through `agent-workers` and `workers.toml`, with no nested workers. User and project rules take precedence, and unavailable steps stay unresolved.
 
 
 # How
