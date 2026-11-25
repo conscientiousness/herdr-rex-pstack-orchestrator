@@ -288,7 +288,7 @@ def main():
               and pi_lines[1]["state"] == "done"
               and pi_lines[1]["closed"] is True)
 
-        # Part 2: Rex --caller-text soft-unwrap on isolated real Rex server
+        # Part 2: Rex caller proof and agy startup banner guard on an isolated server.
         with tempfile.TemporaryDirectory(prefix="rx-guards-", dir="/tmp") as rx_tmp:
             rx_root = Path(rx_tmp)
             listener = rx_root / "server.sock"
@@ -306,8 +306,14 @@ def main():
             os.symlink(Path(sys.executable).resolve(), fake_pi)
             ctrl_script = rx_root / "ctrl.py"
             ctrl_script.write_text(REX_WRAP_CONTROLLER, encoding="utf-8")
-            # Empty workers.toml so run stops cleanly at unknown_worker right after caller verification!
-            (rx_cfg / "workers.toml").write_text("max_active_workers = 2\n", encoding="utf-8")
+            rex_gate = rx_work / "dismiss-banner.release"
+            rex_agy = rx_bin / "agy"
+            rex_agy.write_text(AGY_FIXTURE, encoding="utf-8")
+            rex_agy.chmod(0o755)
+            (rx_cfg / "workers.toml").write_text(
+                'max_active_workers = 2\n[workers.agy-banner]\nharness = "agy"\nmodel = "fixture"\n'
+                f'args = ["--banner-gate", {json.dumps(str(rex_gate))}]\n', encoding="utf-8",
+            )
 
             rx_env = {
                 k: v for k, v in os.environ.items()
@@ -379,6 +385,20 @@ def main():
                       and "checked 1 candidate block(s)" in msg
                       and secret_marker not in msg
                       and long_token not in msg)
+
+                p_rex_banner = run_cli(
+                    args.horch,
+                    ["run", "agy-banner", "--brief", str(brief), "--caller-text", long_token],
+                    env=call_env, cwd=rx_work,
+                )
+                rex_banner = json.loads(p_rex_banner.stdout)
+                check("rex_agy_banner_blocked_before_send",
+                      p_rex_banner.returncode == 0
+                      and rex_banner.get("state") == "start_failed"
+                      and rex_banner.get("submission") == "not_sent"
+                      and "esc to dismiss" in (rex_banner.get("message") or "").lower()
+                      and not (rx_work / "received_while_banner_open").exists(),
+                      {key: rex_banner.get(key) for key in ("state", "submission", "message")})
             finally:
                 (rx_root / "ctrl.release").touch()
                 if server.poll() is None:
@@ -400,7 +420,7 @@ def main():
         "passed": sum(c["ok"] for c in checks),
         "total": len(checks),
         "horch_sha256": sha256(args.horch),
-        "rex_backend_sha256": sha256(REX_BACKEND),
+        "rex_backend_sha256": sha256(args.horch.with_name(REX_BACKEND.name)),
         "rerun": shlex.join(["python3", "e2e/startup_guards.py", "--output", "/tmp/horch-guards-proof"]),
         "checks": checks,
     }

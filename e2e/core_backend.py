@@ -122,12 +122,18 @@ class Run:
                          "checks": self.checks, "commands": self.commands}
         bindir = self.root / "bin"
         bindir.mkdir()
+        runtime_bin = self.root / "controller-runtime"
+        runtime_bin.mkdir()
+        (runtime_bin / "fixture-node").symlink_to(Path(sys.executable).resolve())
         for name, program in (("pi", FIXTURE), ("herdr", GUARD), ("hc", GUARD)):
             path = bindir / name
-            path.write_text("#!" + sys.executable + "\n" + program)
+            interpreter = "/usr/bin/env fixture-node" if name == "pi" else sys.executable
+            path.write_text(f"#!{interpreter}\n" + program)
             path.chmod(0o700)
         (bindir / "herdr-core").symlink_to(core)
-        self.env["PATH"] = str(bindir) + os.pathsep + os.environ.get("PATH", "")
+        # A core started outside the controller's shell lacks its runtime shims.
+        self.server_path = str(bindir) + os.pathsep + os.environ.get("PATH", "")
+        self.env["PATH"] = str(runtime_bin) + os.pathsep + self.server_path
         self.evidence["executables"] = {name: shutil.which(name, path=self.env["PATH"])
                                          for name in ("pi", "herdr-core", "hc", "herdr")}
         config = self.root / "config/herdr-orchestrator/workers.toml"
@@ -161,6 +167,9 @@ class Run:
 
     def hc(self, *args, env=None):
         return self.command([str(self.core), "--json", *args], env=env, timeout=30)
+
+    def start_core(self):
+        return self.hc("server", "start", env=dict(self.env, PATH=self.server_path))
 
     def cli(self, *args, env=None):
         return self.command([sys.executable, str(self.args.horch), *args], env=env)
@@ -357,7 +366,7 @@ class Run:
         self.evidence["settled_endpoint"] = {"artifacts": [str(first.root), str(second.root)]}
         try:
             for child in (first, second):
-                child.check("settled endpoint owned core starts", child.hc("server", "start").returncode == 0)
+                child.check("settled endpoint owned core starts", child.start_core().returncode == 0)
                 child.check("settled endpoint owned core initially empty", not child.terminals())
             launched = first.launch("blocked")
             first.check("settled endpoint blocked run succeeds", launched.returncode == 0)
@@ -643,7 +652,7 @@ def main():
         version = run.command([str(run.core), "--version"], timeout=10)
         run.evidence["versions"] = {"core": version.stdout.strip(), "python": sys.version}
         run.check("real core version available", version.returncode == 0)
-        started = run.hc("server", "start")
+        started = run.start_core()
         run.check("owned real core starts", started.returncode == 0)
         run.check("owned core initially empty", not run.terminals())
         if args.baseline:

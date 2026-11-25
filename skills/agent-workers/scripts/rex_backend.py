@@ -10,16 +10,12 @@ import shutil
 import subprocess
 import time
 
+from worker_runtime import HARNESSES
+
 
 WINDOW_LABEL = "Workers"
 TERMINAL = "com.superlogical.terminal"
 NATIVE_STATES = {"idle", "working", "done", "blocked", "error"}
-NATIVE_APPS = {
-    "pi": {"pi"},
-    "codex": {"codex"},
-    "claude": {"claude", "claude-code"},
-    "agy": {"agy", "antigravity"},
-}
 UUID_PATTERN = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 REX_TARGET_ENV = ("REX_SERVER", "REX_SESSION", "REX_BLOCK", "REX_CLIENT")
 
@@ -103,7 +99,7 @@ def validate(binding):
             or not {"window", "block"} <= binding.keys()
             or not Path(binding["executable"]).is_absolute()
             or _local_endpoint(binding["endpoint"]) != binding["endpoint"]
-            or binding["harness"] not in NATIVE_APPS
+            or binding["harness"] not in HARNESSES
             or not full_id(binding.get("session"), "session")
             or ((window is not None or block is not None) and
                 (not full_id(window, "window") or not full_id(block, "block")))):
@@ -300,7 +296,7 @@ def get(binding):
     for record in records:
         owner, status, updated_at = record.get("owner"), record.get("state"), record.get("updated_at")
         if (not record.get("id") and isinstance(record.get("app"), str)
-                and record["app"] in NATIVE_APPS[binding["harness"]]
+                and record["app"] in HARNESSES[binding["harness"]].process_names
                 and isinstance(owner, dict) and type(owner.get("pid")) is int
                 and any(isinstance(candidate, dict) and candidate.get("pid") == owner["pid"]
                         and candidate.get("name") == owner.get("name") for candidate in processes)
@@ -317,10 +313,9 @@ def send(binding, text, baseline):
     except RexError as exc:
         raise RexError(str(exc), "not_sent") from exc
     _api(binding, "block.event", block_id=binding["block"], event={"type": "paste", "payload": {"text": text}})
-    if binding["harness"] == "codex":
-        # Rex reports a completed paste when input is queued. Codex can still
-        # buffer those bytes and absorb an immediately following Enter.
-        time.sleep(0.3)
+    # A harness can buffer a queued paste and absorb an immediate Enter.
+    if delay := HARNESSES[binding["harness"]].rex_paste_delay:
+        time.sleep(delay)
     if get(binding) != baseline:
         raise RexError("Rex worker changed after prompt paste; Enter was withheld", "worker_changed")
     _cli(binding, "send-key", "-s", binding["session"], "-b", binding["block"], "enter",
