@@ -40,8 +40,8 @@ FIELDS = ('id,number,url,mergeable,mergeStateStatus,reviewDecision,headRefOid,'
           'headRefName,baseRefName,baseRefOid,state,mergedAt,isDraft,autoMergeRequest')
 LIST_FIELDS = 'id,number,url,state,headRefOid,headRefName,baseRefName,baseRefOid,isDraft,autoMergeRequest'
 CHECK_FIELDS = 'name,state,description,link,workflow,bucket'
-READS = ('poteto-mode/SKILL.md', 'pstack-herdr/SKILL.md',
-         'pstack-herdr/references/herdr-tools.md', 'agent-workers/SKILL.md',
+READS = ('poteto-mode/SKILL.md', 'pstack-adapter/SKILL.md',
+         'pstack-adapter/references/harness-tools.md', 'agent-workers/SKILL.md',
          'poteto-mode/playbooks/babysit.md', 'poteto-mode/references/bugbot-triage.md',
          'poteto-mode/scripts/watch-pr/watch-pr', 'poteto-mode/scripts/bootstrap.ts',
          'poteto-mode/scripts/package.json', 'poteto-mode/scripts/bun.lock',

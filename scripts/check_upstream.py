@@ -13,7 +13,7 @@ import tempfile
 PLUGINS = ("pstack", "cursor-team-kit")
 DEFAULT_MANIFEST = (
     Path(__file__).resolve().parents[1]
-    / "skills/pstack-herdr/references/upstream.json"
+    / "skills/pstack-adapter/references/upstream.json"
 )
 
 

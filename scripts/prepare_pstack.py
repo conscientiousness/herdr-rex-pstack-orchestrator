@@ -11,11 +11,11 @@ import subprocess
 import sys
 
 
-ADAPTER = Path(__file__).resolve().parents[1] / "skills/pstack-herdr"
+ADAPTER = Path(__file__).resolve().parents[1] / "skills/pstack-adapter"
 OPENAI_POLICY = "policy:\n  allow_implicit_invocation: false\n"
 RUNTIME_PREAMBLE = (
     "## Agent Workers runtime\n\n"
-    "Read [pstack-herdr](../pstack-herdr/SKILL.md) first (overrides upstream tools, "
+    "Read [pstack-adapter](../pstack-adapter/SKILL.md) first (overrides upstream tools, "
     "model defaults, setup, and Cursor paths). Resolve siblings via `../<name>/SKILL.md` "
     "and relative paths from this folder. Delegate only via `agent-workers` + `workers.toml`; "
     "no nested workers. User/project rules win; keep unavailable steps unresolved.\n"
@@ -97,7 +97,7 @@ def prepare(source, output):
         preamble = skill_preamble(name) if name in adapted else ""
         entries.append((path, portable_skill(path, preamble) if preamble else None))
 
-    for name in ("agent-workers", "pstack-herdr"):
+    for name in ("agent-workers", "pstack-adapter"):
         if not (ADAPTER.parent / name / "SKILL.md").is_file():
             raise ValueError(f"Missing local adapter: skills/{name}/SKILL.md")
 
@@ -122,10 +122,10 @@ def prepare(source, output):
         records.append({"name": path.parent.name, "adapted": content is not None,
                         "source": path.relative_to(source).as_posix(),
                         "source_sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
-    for name in ("agent-workers", "pstack-herdr"):
+    for name in ("agent-workers", "pstack-adapter"):
         shutil.copytree(ADAPTER.parent / name, output / "skills" / name,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    resources = output / "skills/pstack-herdr/references/agents"
+    resources = output / "skills/pstack-adapter/references/agents"
     if resources.exists():
         shutil.rmtree(resources)
     shutil.copytree(source / "pstack/agents", resources)
@@ -135,7 +135,7 @@ def prepare(source, output):
                "skills": records,
                "agents": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                           for path in sorted((source / "pstack/agents").glob("*.md"))}}
-    (output / "skills/pstack-herdr/references/bundle.json").write_text(
+    (output / "skills/pstack-adapter/references/bundle.json").write_text(
         json.dumps(receipt, indent=2) + "\n")
     return {"output": str(output), "upstream_skills": len(records),
             "adapted_skills": sum(row["adapted"] for row in records),

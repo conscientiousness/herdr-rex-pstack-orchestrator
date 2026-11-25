@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
     paths:
-      - skills/pstack-herdr/references/upstream.json
+      - skills/pstack-adapter/references/upstream.json
       - scripts/check_upstream.py
       - .github/workflows/upstream.yml
 

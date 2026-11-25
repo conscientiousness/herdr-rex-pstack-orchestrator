@@ -51,7 +51,7 @@ def read_json(path):
 
 
 def require_historical_fixture_source(parser):
-    manifest = read_json(ROOT / 'skills/pstack-herdr/references/upstream.json')
+    manifest = read_json(ROOT / 'skills/pstack-adapter/references/upstream.json')
     if manifest.get('revision') != HISTORICAL_FIXTURE_SOURCE:
         parser.error('This live fixture targets pstack 0.15.25 (e5136d8) and the legacy Herdr pane protocol. '
                      'See e2e/PLAYBOOKS.md for the recorded checkout and replay instructions.')
@@ -289,7 +289,7 @@ def audit_prototype(events, calls, cwd, tasks, bundle, requirements, workflow, i
                                       and event['call_row'] > after and bool(event['args']['content'].strip())
                                       and path.is_file() and event['args']['content'] == path.read_text()), None)
         checks[names[3]] = all(completion.values())
-    agent_path = str((bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md').resolve())
+    agent_path = str((bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md').resolve())
     mode_path = str((bundle / 'skills/poteto-mode/SKILL.md').resolve())
     routing = bool(tasks) and bool(implementation_workers)
     for task in tasks:

@@ -40,8 +40,8 @@ ROOT = Path(__file__).resolve().parents[1]
 Failure = core.Failure
 BASE_STORAGE = 'c32037b76d52e28908e2a46b40e77bf46be109fdb7fb25afd702070e7d74bfc2'
 READS = (
-    'poteto-mode/SKILL.md', 'pstack-herdr/SKILL.md',
-    'pstack-herdr/references/herdr-tools.md', 'agent-workers/SKILL.md',
+    'poteto-mode/SKILL.md', 'pstack-adapter/SKILL.md',
+    'pstack-adapter/references/harness-tools.md', 'agent-workers/SKILL.md',
     'poteto-mode/playbooks/bug-fix.md', 'control-cli/SKILL.md',
     'how/SKILL.md', 'how/references/explainer-prompt.md', 'why/SKILL.md',
     'why/references/epistemics.md', 'why/references/investigator-prompt.md',
@@ -276,7 +276,7 @@ running. The driver never answers trust dialogs or changes models or Git config.
     'AGENTS.md': r'''# Fixture work rules
 
 Keep all work in the assigned feature branch or worktree and within the
-assignment's files. Use configured workers through the supplied Herdr adapter.
+assignment's files. Use configured workers through the supplied pstack adapter.
 Never alter worker configuration, model choices, authentication or trust.
 
 Use the real CLI for behavior verification. E2E drivers must retain a receipt
@@ -1363,7 +1363,7 @@ and its own configured role (bug-fix, how explainer, why investigators or why
 synthesizer). Put this header before pasted findings, reports or configuration.
 Each brief names its configured worker, selection reason, scope, success criteria,
 and absolute references to
-{self.bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md'} and
+{self.bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md'} and
 {self.bundle / 'skills/poteto-mode/SKILL.md'}, and says: Do not delegate, use
 native subagents, or run a whole playbook. Complete this assignment yourself.
 Each worker writes ONLY report.md as its declared report and result.files MUST
@@ -1741,7 +1741,7 @@ all artifacts and report blocked; do not work around the failed stage.
             self.check('bounded_worker_role_header', own_role in self.role_workers
                        and task['worker'] in self.role_workers[own_role])
             self.check('bounded_worker_brief', all(word in brief for word in (task['worker'], 'Do not delegate',
-                       str(self.bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md'),
+                       str(self.bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md'),
                        str(self.bundle / 'skills/poteto-mode/SKILL.md'))) and bool(re.search(r'reason|because', brief, re.I)))
             self.task_facts.append({'task_id_sha256': hashlib.sha256(task['task_id'].encode()).hexdigest(),
                                     'model': task.get('model'), 'effort': worker.get('effort'), 'harness': task.get('harness'),
@@ -1777,8 +1777,8 @@ all artifacts and report blocked; do not work around the failed stage.
         checklist = [e for e in checklist if re.findall(r'^\d+\. (.+)$', e['args']['content'], re.M) == steps]
         first_launch = min(e['call_row'] for e in launches.values())
         initial_reads = []
-        for resource in ('poteto-mode/SKILL.md', 'pstack-herdr/SKILL.md',
-                         'pstack-herdr/references/herdr-tools.md', 'poteto-mode/playbooks/bug-fix.md'):
+        for resource in ('poteto-mode/SKILL.md', 'pstack-adapter/SKILL.md',
+                         'pstack-adapter/references/harness-tools.md', 'poteto-mode/playbooks/bug-fix.md'):
             reads = core.workflow_reads(events, self.worktree, self.bundle / 'skills' / resource,
                                         before=checklist[0]['call_row'] if checklist else -1)
             self.check('initial_read_' + resource.replace('/', '_'), bool(reads))

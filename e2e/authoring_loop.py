@@ -35,13 +35,13 @@ Failure = core.Failure
 SKILL = Path('.agents/skills/ledger-operations')
 AUTHORED = (str(SKILL / 'SKILL.md'), str(SKILL / 'references/cli-contract.md'))
 APP = ('money.py', 'storage.py', 'cli.py', 'e2e_import.py')
-READS = ('poteto-mode/SKILL.md', 'pstack-herdr/SKILL.md',
-         'pstack-herdr/references/herdr-tools.md', 'agent-workers/SKILL.md',
+READS = ('poteto-mode/SKILL.md', 'pstack-adapter/SKILL.md',
+         'pstack-adapter/references/harness-tools.md', 'agent-workers/SKILL.md',
          'poteto-mode/playbooks/authoring-a-skill.md',
          'poteto-mode/playbooks/opening-a-pr.md', 'deslop/SKILL.md',
          'no-comments/SKILL.md', 'technical-writing/SKILL.md', 'unslop/SKILL.md',
          'principle-sequence-verifiable-units/SKILL.md',
-         'pstack-herdr/references/agents/comment-sicko.md')
+         'pstack-adapter/references/agents/comment-sicko.md')
 PROTOCOL = '''Use only direct native read, bash, write, edit, grep, find and ls.
 Do not use codemode or another tool wrapper: nested results are unauditable.
 Do not delegate, use native subagents, change configuration, answer trust dialogs,
@@ -632,7 +632,7 @@ Case: {case['identity']}
 Worker: {self.selected[label]}
 Reason: explicit CLI selection for one fresh independent forward-use process.
 {PROTOCOL}
-Read {self.bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md'} and
+Read {self.bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md'} and
 {self.bundle / 'skills/poteto-mode/SKILL.md'} as bounded worker instructions.
 Use ledger-operations at {self.worktree / AUTHORED[0]} for this request:
 Import both supplier files {case['inputs'][0]} and {case['inputs'][1]} into the
@@ -668,8 +668,8 @@ serialization boundary, not replacement agent rules. Do not copy, paraphrase
 or replace the original agent rules.
 Read the complete bundled instructions:
 {self.bundle / 'skills/no-comments/SKILL.md'}
-{self.bundle / 'skills/pstack-herdr/references/agents/comment-sicko.md'}
-{self.bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md'}
+{self.bundle / 'skills/pstack-adapter/references/agents/comment-sicko.md'}
+{self.bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md'}
 {self.bundle / 'skills/poteto-mode/SKILL.md'}
 Scope: only {self.worktree / AUTHORED[0]} and {self.worktree / AUTHORED[1]}.
 Base: {self.base}; checkout: {self.worktree}. Full-read both actual authored files
@@ -720,8 +720,8 @@ approval: report those needs as open_work. Complete this review yourself.
         saved = self.directory / 'comment-review-native.jsonl'
         shutil.copy2(source, saved)
         guides = [self.bundle / 'skills' / name for name in (
-            'no-comments/SKILL.md', 'pstack-herdr/references/agents/comment-sicko.md',
-            'pstack-herdr/references/agents/poteto-agent.md', 'poteto-mode/SKILL.md')]
+            'no-comments/SKILL.md', 'pstack-adapter/references/agents/comment-sicko.md',
+            'pstack-adapter/references/agents/poteto-agent.md', 'poteto-mode/SKILL.md')]
         audit = core.audit_pi(source, self.worker_sessions[task['task_id']], self.worktree,
                               core.stamp(task['created_at']), worker, guides, [], [], self.bundle)
         self.check('comment_native_identity_model_effort_guides', all(item['ok'] for item in audit['checks'])
@@ -971,7 +971,7 @@ approval: report those needs as open_work. Complete this review yourself.
         launch, delivery = launches[comment['task_id']], deliveries[comment['task_id']]
         self.check('comment_review_after_both_forward_deliveries_reads',
                    max(event['result_row'] for event in report_reads) < launch['call_row'])
-        for resource in ('no-comments/SKILL.md', 'pstack-herdr/references/agents/comment-sicko.md'):
+        for resource in ('no-comments/SKILL.md', 'pstack-adapter/references/agents/comment-sicko.md'):
             self.check('comment_lead_guidance_before_delegation_' + resource, bool(core.workflow_reads(
                 events, self.worktree, self.bundle / 'skills' / resource, before=launch['call_row'])))
         comment_reads = []

@@ -666,7 +666,7 @@ It returns 0 for unchanged relevant trees, 1 for changes requiring review, and 2
 
 The controller/pstack review-loop runs recorded on 2026-10-09 used **pstack-claude 0.9.73**, the port by Michael Denyer, at commit `8d3aa5719ab836e89482c894bbedd710224f4424` ([source](https://github.com/michael-denyer/pstack-claude/tree/v0.9.73/plugins/pstack)). Their role-sheet and runtime mappings belonged to that integration. The original receipts, versions, and hashes remain unchanged.
 
-The current adapter bundles selected skills from Lauren Tan's original `cursor/plugins`. Those historical passes do not verify the new source or entry instructions. The [current source pin and update procedure](../skills/pstack-herdr/references/compatibility.md) distinguish source inspection from actual runtime evidence. Neither public loop driver exercises the original pstack rubric.
+The current adapter bundles selected skills from Lauren Tan's original `cursor/plugins`. Those historical passes do not verify the new source or entry instructions. The [current source pin and update procedure](../skills/pstack-adapter/references/compatibility.md) distinguish source inspection from actual runtime evidence. Neither public loop driver exercises the original pstack rubric.
 
 ## Why the lifecycle mechanisms remain
 

@@ -175,6 +175,6 @@ args = ["--mode", "auto"]
 | `workers.<name>.effort` | Optional reasoning effort. |
 | `workers.<name>.description` | Optional controller guidance describing intended scope/boundaries. |
 | `workers.<name>.args` | Optional extra CLI args (e.g., permission flags), appended last. |
-| `roles` | Optional. Used by `pstack-herdr` routing and `agent-workers stats`. |
+| `roles` | Optional. Used by `pstack-adapter` routing and `agent-workers stats`. |
 
 Worker names match `[a-z][a-z0-9-]{0,15}`. Task state lives in `$XDG_STATE_HOME/herdr-orchestrator/tasks/` (default `~/.local/state/herdr-orchestrator/tasks/`) until deleted by the user.

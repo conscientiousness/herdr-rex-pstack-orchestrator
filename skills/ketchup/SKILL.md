@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 ## Agent Workers runtime
 
-Read [pstack-herdr](../pstack-herdr/SKILL.md) first (overrides upstream tools, model defaults, setup, and Cursor paths). Resolve siblings via `../<name>/SKILL.md` and relative paths from this folder. Delegate only via `agent-workers` + `workers.toml`; no nested workers. User/project rules win; keep unavailable steps unresolved.
+Read [pstack-adapter](../pstack-adapter/SKILL.md) first (overrides upstream tools, model defaults, setup, and Cursor paths). Resolve siblings via `../<name>/SKILL.md` and relative paths from this folder. Delegate only via `agent-workers` + `workers.toml`; no nested workers. User/project rules win; keep unavailable steps unresolved.
 
 
 # Ketchup

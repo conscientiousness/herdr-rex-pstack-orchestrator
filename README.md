@@ -56,7 +56,7 @@ npx skills@latest add https://github.com/conscientiousness/herdr-rex-pstack-orch
 Choose your agent harnesses and project or global scope in the installer, and
 review any same-name skill conflicts. Then start a **new agent session** so it
 can load the skills. See the [installation guide](docs/INSTALL.md) for manual
-installation, updates, and removal.
+installation, updates, and removal. Upgrading from `herdr-orchestrator` or `pstack-herdr`? Ask your agent to follow [MIGRATE.md](docs/MIGRATE.md).
 
 ## Quickstart
 
@@ -95,7 +95,7 @@ Use interrogate to review this branch.
 
 Or ask for `poteto-mode` when you want a broader workflow. The controller can
 help configure the worker roles that a workflow needs. For the included skills,
-role mapping, and compatibility details, see the [pstack guide](skills/pstack-herdr/references/compatibility.md).
+role mapping, and compatibility details, see the [pstack guide](skills/pstack-adapter/references/compatibility.md).
 
 ## Update
 
