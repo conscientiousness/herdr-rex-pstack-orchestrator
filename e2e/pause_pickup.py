@@ -342,7 +342,7 @@ class ContinuityRun(base.Run):
 
     def common(self):
         return [self.bundle / path for path in ('skills/poteto-mode/SKILL.md',
-                'skills/pstack-herdr/SKILL.md', 'skills/pstack-herdr/references/herdr-tools.md',
+                'skills/pstack-adapter/SKILL.md', 'skills/pstack-adapter/references/harness-tools.md',
                 'skills/agent-workers/SKILL.md')]
 
     def audit_controller(self, controller, tasks, reads):
@@ -387,7 +387,7 @@ class ContinuityRun(base.Run):
                    'feature, refactoring' in assignment and self.writer in assignment
                    and re.search(r'\b(?:reason|because)\b', assignment, re.I)
                    and str(self.fixture / 'money.py') in assignment
-                   and str(self.bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md') in assignment
+                   and str(self.bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md') in assignment
                    and str(self.bundle / 'skills/poteto-mode/SKILL.md') in assignment
                    and re.search(r'\b(?:do not|must not|never)\s+(?:delegate|spawn|use\s+(?:native\s+)?subagents)|\bno\s+(?:delegation|subagents)', assignment, re.I))
         self.check('checkpoint_only_money_dirty', self.git('rev-parse', 'HEAD') == self.seed
@@ -727,7 +727,7 @@ Read these bundled documents in full with separate native reads: {', '.join(map(
 Read the originating workstream at {self.bundle / 'skills/poteto-mode/playbooks/feature.md'} in full too.
 Read {self.fixture / 'contract.md'}. Delegate exactly one bounded implementation of ONLY {self.fixture / 'money.py'}
 through {self.bundle / 'skills/agent-workers/scripts/agent-workers.py'}, role feature, refactoring, configured worker {self.writer}.
-Every brief names role, selected worker and reason, includes the absolute paths {self.bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md'}
+Every brief names role, selected worker and reason, includes the absolute paths {self.bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md'}
 and {self.bundle / 'skills/poteto-mode/SKILL.md'}, forbids delegation/native subagents and any commit, and permits only money.py edits.
 Use your actual pane {self.pane} as --caller-pane. Use separate literal python3 <absolute agent-workers.py> run/wait commands.
 Wait for actual state done, then read the worker's complete report.md, listed in result.json files. Do not accept an early result as delivery.

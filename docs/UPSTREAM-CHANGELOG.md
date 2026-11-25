@@ -1,6 +1,6 @@
 # Upstream pstack changelog
 
-Historical sync notes for [Lauren Tan's original pstack](https://github.com/cursor/plugins/tree/main/pstack) (`cursor/plugins`). For the current bundle pin, install command, exclusions, and runtime mapping, see [compatibility.md](../skills/pstack-herdr/references/compatibility.md).
+Historical sync notes for [Lauren Tan's original pstack](https://github.com/cursor/plugins/tree/main/pstack) (`cursor/plugins`). For the current bundle pin, install command, exclusions, and runtime mapping, see [compatibility.md](../skills/pstack-adapter/references/compatibility.md).
 
 ## 0.15.48 (`005d8f6`)
 

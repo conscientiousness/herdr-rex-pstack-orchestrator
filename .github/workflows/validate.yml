@@ -96,8 +96,8 @@ jobs:
           test -f .agents/skills/agent-workers/references/setup.md
           test -f .agents/skills/agent-workers/references/lifecycle.md
           test -f .agents/skills/agent-workers/scripts/rex_backend.py
-          test -f .agents/skills/pstack-herdr/references/compatibility.md
-          test -f .agents/skills/pstack-herdr/references/herdr-tools.md
+          test -f .agents/skills/pstack-adapter/references/compatibility.md
+          test -f .agents/skills/pstack-adapter/references/harness-tools.md
           test -f .claude/skills/agent-workers/SKILL.md
       - name: Verify bundled upstream files match regeneration
         if: matrix.python == '3.11'
@@ -105,7 +105,7 @@ jobs:
           DISABLE_TELEMETRY: '1'
         run: |
           catalog_check=$(mktemp -d)
-          pstack_revision=$(python -c 'import json; print(json.load(open("skills/pstack-herdr/references/upstream.json"))["revision"])')
+          pstack_revision=$(python -c 'import json; print(json.load(open("skills/pstack-adapter/references/upstream.json"))["revision"])')
           git clone --quiet https://github.com/cursor/plugins.git "$catalog_check/source"
           git -C "$catalog_check/source" checkout --detach "$pstack_revision"
           python scripts/prepare_pstack.py --source "$catalog_check/source" --output "$catalog_check/package"

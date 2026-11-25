@@ -36,8 +36,8 @@ SOURCE_FILES = ('money.py', 'storage.py', 'cli.py', 'e2e_import.py')
 THROUGHPUT = ('Blocking first steps', 'Independent workstreams',
               'Shared mutable state', 'Smallest safe decomposition')
 READS = (
-    'poteto-mode/SKILL.md', 'pstack-herdr/SKILL.md',
-    'pstack-herdr/references/herdr-tools.md', 'agent-workers/SKILL.md',
+    'poteto-mode/SKILL.md', 'pstack-adapter/SKILL.md',
+    'pstack-adapter/references/harness-tools.md', 'agent-workers/SKILL.md',
     'how/SKILL.md', 'how/references/explorer-prompt.md', 'how/references/explainer-prompt.md',
     'architect/SKILL.md', 'architect/references/runner-prompt.md',
     'architect/references/rationale-template.md', 'architect/references/design-red-flags.md',
@@ -49,7 +49,7 @@ READS = (
     'principle-prove-it-works/SKILL.md', 'principle-migrate-callers-then-delete-legacy-apis/SKILL.md',
     'principle-separate-before-serializing-shared-state/SKILL.md',
     'principle-sequence-verifiable-units/SKILL.md', 'principle-exhaust-the-design-space/SKILL.md',
-    'pstack-herdr/references/agents/comment-sicko.md',
+    'pstack-adapter/references/agents/comment-sicko.md',
 )
 
 # An external immutable oracle witnesses real application failures as JSON data,
@@ -392,8 +392,8 @@ def comment_gate_contract(native, task, cwd, bundle, base, scenario, source_hash
     directory = Path(task['task_dir']).resolve()
     scope = ('cli.py', 'storage.py') if scenario == 'feature' else ('storage.py',)
     guides = [bundle / 'skills' / name for name in ('no-comments/SKILL.md',
-              'pstack-herdr/references/agents/comment-sicko.md',
-              'pstack-herdr/references/agents/poteto-agent.md', 'poteto-mode/SKILL.md')]
+              'pstack-adapter/references/agents/comment-sicko.md',
+              'pstack-adapter/references/agents/poteto-agent.md', 'poteto-mode/SKILL.md')]
     rows = [json.loads(line) for line in native.read_text().splitlines() if line.strip()]
     texts = [(index, block['text']) for index, row in enumerate(rows)
              if row.get('message', {}).get('role') == 'assistant'
@@ -659,7 +659,7 @@ def design_scope_audit(policy_path, task_id):
     paths = list((Path(policy['agent_dir']) / 'sessions' / encoded).glob('*_' + identity + '.jsonl'))
     require(len(paths) == 1 and (session.get('kind') != 'path' or paths[0].resolve() == Path(value).resolve()))
     native = paths[0]
-    guides = [bundle / 'skills/poteto-mode/SKILL.md', bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md']
+    guides = [bundle / 'skills/poteto-mode/SKILL.md', bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md']
     declared_guides = set(guides)
     for raw in re.findall(r'^Guide: (.+)$', assignment, re.M):
         guide = Path(raw)
@@ -1455,7 +1455,7 @@ Reason: configured judgment and prose role fits this bounded CommentSicko audit.
 Output: report.md
 Output: review.json
 Guide: {self.bundle / 'skills/no-comments/SKILL.md'}
-Guide: {self.bundle / 'skills/pstack-herdr/references/agents/comment-sicko.md'}
+Guide: {self.bundle / 'skills/pstack-adapter/references/agents/comment-sicko.md'}
 Use only direct native read/bash/write/edit/grep/find/ls, no codemode or wrappers.
 Do not delegate, use native subagents, or run a whole playbook. Complete this
 assignment yourself. No config/model/trust changes, retries, commits or forge.
@@ -1471,8 +1471,8 @@ serialization boundary, not replacement agent rules. Do not copy, paraphrase
 or replace the original agent rules.
 Full-read original bundled guides:
 {self.bundle / 'skills/no-comments/SKILL.md'}
-{self.bundle / 'skills/pstack-herdr/references/agents/comment-sicko.md'}
-{self.bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md'}
+{self.bundle / 'skills/pstack-adapter/references/agents/comment-sicko.md'}
+{self.bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md'}
 {self.bundle / 'skills/poteto-mode/SKILL.md'}
 Scope: actual integration files {json.dumps(self.comment_scope())}, cwd
 {self.worktree}, base {self.base}; NOT a detached baseline. Full-read each scoped
@@ -1526,7 +1526,7 @@ nested delegation. Follow the original CommentSicko scope and report honestly.
     def verify_comment(self, record, events, all_events, final_sources):
         task, launch = record['task'], record['launch']
         self.check('comment_after_stable_verified_implementation', launch['call_row'] > self.review_complete_row)
-        for resource in ('no-comments/SKILL.md', 'pstack-herdr/references/agents/comment-sicko.md'):
+        for resource in ('no-comments/SKILL.md', 'pstack-adapter/references/agents/comment-sicko.md'):
             self.check('comment_lead_guidance_' + resource, bool(core.workflow_reads(events, self.worktree,
                        self.bundle / 'skills' / resource, before=launch['call_row'])))
         worker = self.config['workers'][task['worker']]
@@ -1534,8 +1534,8 @@ nested delegation. Follow the original CommentSicko scope and report honestly.
         saved = self.directory / 'comment-native.jsonl'
         shutil.copy2(source, saved)
         guides = [self.bundle / 'skills' / name for name in ('no-comments/SKILL.md',
-                  'pstack-herdr/references/agents/comment-sicko.md',
-                  'pstack-herdr/references/agents/poteto-agent.md', 'poteto-mode/SKILL.md')]
+                  'pstack-adapter/references/agents/comment-sicko.md',
+                  'pstack-adapter/references/agents/poteto-agent.md', 'poteto-mode/SKILL.md')]
         audit = core.audit_pi(source, self.worker_sessions[task['task_id']], self.worktree,
                               core.stamp(task['created_at']), worker, guides, [], [], self.bundle)
         self.check('comment_native_identity_model_effort_guides', all(item['ok'] for item in audit['checks'])
@@ -1795,7 +1795,7 @@ nested delegation. Follow the original CommentSicko scope and report honestly.
             brief = Path(task['brief_path']).read_text()
             self.check('worker_bounded_protocol', all(word in brief for word in ('Do not delegate', 'codemode', task['worker'],
                        str(self.bundle / 'skills/poteto-mode/SKILL.md'),
-                       str(self.bundle / 'skills/pstack-herdr/references/agents/poteto-agent.md'))) and bool(re.search(r'reason|because', brief, re.I)))
+                       str(self.bundle / 'skills/pstack-adapter/references/agents/poteto-agent.md'))) and bool(re.search(r'reason|because', brief, re.I)))
             if slot == 'comment-review':
                 expected = self.comment_brief().rstrip('\n') + '\n\n' + horch.WORKER_RULES.format(
                     result_path=Path(task['result_path']), task_id=task['task_id'], nonce=task['nonce'])
@@ -2051,8 +2051,8 @@ nested delegation. Follow the original CommentSicko scope and report honestly.
         checklist = self.written(events, 'checklist.md', before=first_launch)
         steps = re.findall(r'^\d+\. (.+)$', (self.bundle / f'skills/poteto-mode/playbooks/{self.args.scenario}.md').read_text(), re.M)
         self.check('exact_original_eight_step_checklist', len(steps) == 8 and re.findall(r'^\d+\. (.+)$', checklist['args']['content'], re.M) == steps)
-        for resource in ('poteto-mode/SKILL.md', 'pstack-herdr/SKILL.md',
-                         'pstack-herdr/references/herdr-tools.md', 'agent-workers/SKILL.md',
+        for resource in ('poteto-mode/SKILL.md', 'pstack-adapter/SKILL.md',
+                         'pstack-adapter/references/harness-tools.md', 'agent-workers/SKILL.md',
                          f'poteto-mode/playbooks/{self.args.scenario}.md'):
             self.check('initial_full_read_' + resource.replace('/', '_'), bool(core.workflow_reads(
                 events, self.worktree, self.bundle / 'skills' / resource, before=checklist['call_row'])))

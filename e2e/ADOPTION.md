@@ -53,7 +53,7 @@ baseline, an explicit open parent PR and a separate owned feature branch. The
 [fixture setup procedure](PLAYBOOKS.md#continuity-and-writable-workflows)
 describes preparation. Keep the parent and child PR unmerged.
 
-1. Run `python3 skills/herdr-orchestrator/scripts/horch.py detect`, verify the
+1. Run `python3 skills/agent-workers/scripts/horch.py detect`, verify the
    actual caller pane and select the implementation and independent review
    workers from the existing role map. Preserve models, permissions and auth.
 2. Create an isolated fixture worktree. Extract the existing oracle as above
@@ -63,8 +63,8 @@ describes preparation. Keep the parent and child PR unmerged.
    with actual absolute paths and the selected worker. Dispatch with:
 
    ```bash
-   python3 skills/herdr-orchestrator/scripts/horch.py run <implementation-worker> --brief <absolute-brief> --cwd <fixture-worktree> --caller-pane <verified-pane> --caller-text '<unique visible conversation text>'
-   python3 skills/herdr-orchestrator/scripts/horch.py wait <implementation-task>
+   python3 skills/agent-workers/scripts/horch.py run <implementation-worker> --brief <absolute-brief> --cwd <fixture-worktree> --caller-pane <verified-pane> --caller-text '<unique visible conversation text>'
+   python3 skills/agent-workers/scripts/horch.py wait <implementation-task>
    ```
 
 4. Require `done`, a valid completed result and closed pane. Read the delivered

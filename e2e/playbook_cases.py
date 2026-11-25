@@ -234,8 +234,8 @@ def prepare(name, worktree, artifacts, bundle):
     fixture = worktree / ".playbook-fixture"
     fixture.mkdir()
     artifacts.mkdir(parents=True, exist_ok=True)
-    required = ["skills/poteto-mode/SKILL.md", "skills/pstack-herdr/SKILL.md",
-                "skills/pstack-herdr/references/herdr-tools.md",
+    required = ["skills/poteto-mode/SKILL.md", "skills/pstack-adapter/SKILL.md",
+                "skills/pstack-adapter/references/harness-tools.md",
                 "skills/agent-workers/SKILL.md",
                 "skills/unslop/SKILL.md",
                 f"skills/poteto-mode/playbooks/{CASES[name]['playbook']}.md"]

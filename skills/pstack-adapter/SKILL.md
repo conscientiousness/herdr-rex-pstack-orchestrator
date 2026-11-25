@@ -1,9 +1,9 @@
 ---
-name: pstack-herdr
+name: pstack-adapter
 description: "Run original pstack workflows through configured workers in Rex, Herdr, or headless herdr-core. Loaded by installed pstack workflow skills to map their tools and roles to agent-workers."
 ---
 
-# pstack-herdr
+# pstack-adapter
 
 Loaded by installed pstack skills before upstream text. Read [agent-workers](../agent-workers/SKILL.md) for dispatch, waiting, caller context, PR-first delivery, and recovery. Precedence: user/project instructions > this adapter > upstream tools, models, config paths, and delegation. Preserve bundled text; report gaps instead of workarounds.
 
@@ -21,7 +21,7 @@ Loaded by installed pstack skills before upstream text. Read [agent-workers](../
 | Upstream | Equivalent |
 |---|---|
 | `Agent`/`Task`/`run_in_background` | `agent-workers run --wait` (parallel background calls up to `max_active_workers`), or `run` + background `wait [--all]`. |
-| `poteto-agent` / `comment-sicko` | Pass absolute path to [poteto-agent](references/agents/poteto-agent.md) or [comment-sicko](references/agents/comment-sicko.md) (+ `../poteto-mode/SKILL.md` for `poteto-agent`). Instructions only, not worker choice. First-output rules: [herdr-tools.md](references/herdr-tools.md). |
+| `poteto-agent` / `comment-sicko` | Pass absolute path to [poteto-agent](references/agents/poteto-agent.md) or [comment-sicko](references/agents/comment-sicko.md) (+ `../poteto-mode/SKILL.md` for `poteto-agent`). Instructions only, not worker choice. First-output rules: [harness-tools.md](references/harness-tools.md). |
 | `generalPurpose` | Selected worker + upstream prompt; no native registration. |
 | `readonly: true` | Scoped reads; writes only to declared reports + `result.json` in task dir. Verify checkout/external state. |
 | Isolated writer | Separate git worktree per concurrent writer at `<main checkout>/.worktrees/<name>` (`--cwd`), so it inherits the checkout's harness trust. |
@@ -58,4 +58,4 @@ Run `agent-workers roles [<role>]` (`workers.toml`, or pass `--profile <name>` /
 
 - [review-and-arena.md](references/workflows/review-and-arena.md) (`interrogate`/`arena`/cross-judge) | [ketchup-and-visuals.md](references/workflows/ketchup-and-visuals.md) (`ketchup`/video/visuals)
 - [git-and-forge.md](references/workflows/git-and-forge.md) (`Babysit`/worktrees/`Shipping`) | [skills-and-reflect.md](references/workflows/skills-and-reflect.md) (`reflect`/skills/`Eval`)
-- [herdr-tools.md](references/herdr-tools.md) (stalled owners/store/MCP/transcripts/gaps) | [compatibility.md](references/compatibility.md) (install/provenance)
+- [harness-tools.md](references/harness-tools.md) (stalled owners/store/MCP/transcripts/gaps) | [compatibility.md](references/compatibility.md) (install/provenance)

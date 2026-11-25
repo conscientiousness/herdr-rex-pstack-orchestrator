@@ -35,8 +35,8 @@ import forge_loop as forge
 ROOT = Path(__file__).resolve().parents[1]
 Failure = core.Failure
 horch = core.horch
-READS = ('poteto-mode/SKILL.md', 'pstack-herdr/SKILL.md',
-         'pstack-herdr/references/herdr-tools.md', 'agent-workers/SKILL.md',
+READS = ('poteto-mode/SKILL.md', 'pstack-adapter/SKILL.md',
+         'pstack-adapter/references/harness-tools.md', 'agent-workers/SKILL.md',
          'poteto-mode/playbooks/runtime-forensics.md', 'control-cli/SKILL.md',
          'benchmark-checklist/SKILL.md', 'principle-guard-the-context-window/SKILL.md',
          'principle-explain-the-number/SKILL.md', 'unslop/SKILL.md')

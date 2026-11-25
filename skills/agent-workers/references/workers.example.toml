@@ -57,7 +57,7 @@ harness = "agy"
 model = "gemini-3.8-flash-high"
 args = ["--mode", "auto"]
 
-# Optional. pstack-herdr uses roles for routing; agent-workers stats reports missing workers.
+# Optional. pstack-adapter uses roles for routing; agent-workers stats reports missing workers.
 # A single role names one worker from [workers]; a panel role lists one
 # worker per review task. Repeated names start separate fresh processes.
 [roles]

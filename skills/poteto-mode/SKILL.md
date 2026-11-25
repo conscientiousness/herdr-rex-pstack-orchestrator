@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 **Worker guard:** If you are a worker running from a `brief.md`, skip this runtime section and the Subagents/Playbooks sections; follow only Non-negotiables and Principles.
 
-Read [pstack-herdr](../pstack-herdr/SKILL.md) first (overrides upstream tools, model defaults, setup, and Cursor paths). Resolve siblings via `../<name>/SKILL.md` and relative paths from this folder. Delegate only via `agent-workers` + `workers.toml`; no nested workers. User/project rules win; keep unavailable steps unresolved.
+Read [pstack-adapter](../pstack-adapter/SKILL.md) first (overrides upstream tools, model defaults, setup, and Cursor paths). Resolve siblings via `../<name>/SKILL.md` and relative paths from this folder. Delegate only via `agent-workers` + `workers.toml`; no nested workers. User/project rules win; keep unavailable steps unresolved.
 
 
 # Poteto mode

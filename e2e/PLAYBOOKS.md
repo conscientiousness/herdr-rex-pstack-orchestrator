@@ -15,7 +15,7 @@ harness's compatibility.
 
 ## Workflow review for pstack 0.15.43
 
-This source review covers every bundled playbook. Follow the selected playbook for its method and the [Herdr adapter](../skills/pstack-herdr/SKILL.md) for execution. The [0.15.43 receipt](evidence/workflow-review-0.15.43.json) records the fresh checks. The [scenario inventory](#complete-inventory) includes the earlier live runs.
+This source review covers every bundled playbook. Follow the selected playbook for its method and the [pstack adapter](../skills/pstack-adapter/SKILL.md) for execution. The [0.15.43 receipt](evidence/workflow-review-0.15.43.json) records the fresh checks. The [scenario inventory](#complete-inventory) includes the earlier live runs.
 
 | Playbook | What the controller must preserve when using Herdr |
 |---|---|

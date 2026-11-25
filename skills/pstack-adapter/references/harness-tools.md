@@ -1,6 +1,6 @@
 # Agent Workers tool mapping for pstack
 
-On-demand reference for Cursor-specific instructions not covered in the [pstack-herdr hot path](../SKILL.md) or [agent-workers](../../agent-workers/SKILL.md).
+On-demand reference for Cursor-specific instructions not covered in the [pstack-adapter hot path](../SKILL.md) or [agent-workers](../../agent-workers/SKILL.md).
 
 ## Workflow-specific guides
 

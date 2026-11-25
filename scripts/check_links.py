@@ -102,7 +102,7 @@ def suggestion(destination, source_dir, files):
 
 
 def upstream_paths(root):
-    references = Path("skills/pstack-herdr/references")
+    references = Path("skills/pstack-adapter/references")
     try:
         bundle = json.loads((root / references / "bundle.json").read_text(encoding="utf-8"))
     except FileNotFoundError:

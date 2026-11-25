@@ -95,7 +95,7 @@ Use interrogate to review this branch.
 
 Or ask for `poteto-mode` when you want a broader workflow. The controller can
 help configure the worker roles that a workflow needs. For the included skills,
-role mapping, and compatibility details, see the [pstack guide](skills/pstack-herdr/references/compatibility.md).
+role mapping, and compatibility details, see the [pstack guide](skills/pstack-adapter/references/compatibility.md).
 
 ## Update
 

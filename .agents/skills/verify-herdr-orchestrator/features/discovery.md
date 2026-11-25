@@ -10,7 +10,7 @@ Install the committed bundle into a disposable project, remove the temporary ins
 
 ## How to get to it (user POV)
 
-Use the [single bundle installation command](../../../../skills/pstack-herdr/references/compatibility.md#install). No separate upstream checkout is required. The procedure below exercises the current local bundle without changing global skills.
+Use the [single bundle installation command](../../../../skills/pstack-adapter/references/compatibility.md#install). No separate upstream checkout is required. The procedure below exercises the current local bundle without changing global skills.
 
 ## Driving it with existing scripts
 

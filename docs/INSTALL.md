@@ -97,6 +97,11 @@ Symlinks use the updated files; if you copied the skills instead, copy them
 again. Keep your existing `workers.toml`. After either update, start a new
 controller session in your chosen multiplexer, or use core headless.
 
+The pstack adapter was renamed from `pstack-herdr` to `pstack-adapter`. The
+installer does not remove the old entry, so remove it from the same scope after
+updating: `npx skills@latest remove pstack-herdr -y` (add `-g` for a global
+install). For a manual install, delete the old `pstack-herdr` link or copy.
+
 ## Remove
 
 To remove the core skill from a project, run this in that project:
