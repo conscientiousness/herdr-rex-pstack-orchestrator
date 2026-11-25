@@ -5,11 +5,11 @@ description: Verify herdr-rex-pstack-orchestrator through its existing local E2E
 
 # Verify agent-workers
 
-Use the existing scripts for the behavior under investigation. Start with the [feature map](features/README.md); do not run every model E2E for a documentation change. This is repository tooling, not part of the published skill package.
+Run only the existing E2E driver for the behavior you changed or observed failing. Start with the [feature map](features/README.md). Do not run model E2Es for documentation changes. This skill is repository tooling, not part of the published package.
 
 ## Launch
 
-Run commands from this clone's root. There is no application server or build step. Python 3.11+ is required; each feature lists its other prerequisites. Create a private artifact parent outside the checkout:
+Run commands from the repository root with Python 3.11 or later. There is no build step or application server. Create an artifact directory outside the checkout:
 
 ```bash
 repo=$(git rev-parse --show-toplevel)
@@ -19,40 +19,36 @@ git rev-parse HEAD > "$proof/revision.txt"
 git diff --stat > "$proof/working-tree.txt"
 ```
 
-Record the selected command and CLI versions with the receipt. Model runs require an authenticated harness, Herdr, and existing worker definitions in `${XDG_CONFIG_HOME:-$HOME/.config}/herdr-orchestrator/workers.toml`. Read actual harness/model definitions; names such as `gpt` do not imply Codex. Read [worker operation rules](../../../skills/agent-workers/SKILL.md) before a model run.
+Record the exact command and CLI versions beside the receipt. Model runs need authenticated harnesses and configured workers in `${XDG_CONFIG_HOME:-$HOME/.config}/herdr-orchestrator/workers.toml`. Check actual `harness` and `model` values rather than assuming from worker names. Read [agent-workers](../../../skills/agent-workers/SKILL.md) before any model run.
 
 ## Doctor
 
-For model runs, first use this read-only check:
+Before model or backend runs, run this read-only check:
 
 ```bash
 python3 skills/agent-workers/scripts/agent-workers.py detect
 ```
 
-Confirm required CLIs, the selected backend, the actual controller pane/workspace, available slots, and each driver's prerequisites before launching. For a Herdr controller, read `pane process-info` and `pane read --source visible` to match this conversation; inherited environment and session IDs are candidates, never sufficient evidence. Agent-controller `run`/`check` calls require confirmed `--caller-pane` and `--caller-text` (at least 16 characters unique to the visible conversation). Ordinary shell automation can use actual process ancestry. Core needs no Pi integration; legacy Pi does. `agent-workers check` makes real model calls; it is not a read-only doctor. Missing configuration, authentication, or trust is a prerequisite gap; do not change it silently.
+Confirm required CLIs, the selected backend, available slots, and the driver's prerequisites. Inside Herdr or Rex, pass `--caller-text` (at least 16 visible characters unique to this conversation) on `run` and `check`, plus `--caller-pane` or `--caller-block` when disambiguating. Ordinary shell scripts can rely on process ancestry. Legacy Pi requires `herdr integration install pi`, while Rex and `herdr-core` do not. `agent-workers check` makes real model calls and is not a read-only doctor. Treat missing config, auth, or trust as a prerequisite gap, and never modify user settings silently.
 
-For discovery and upstream checks, use the feature's source/CLI doctor instead; Herdr and model credentials are unnecessary.
+For discovery and upstream checks, follow that feature's CLI checks. Herdr, Rex, and model credentials are not needed.
 
 ## Drive
 
-Follow only the selected [feature procedure](features/README.md). Keep the original long-running command/session alive while posting progress updates. Put Herdr evaluations in owned tabs and Rex evaluations on an isolated server. Stop other dispatchers during isolated-state model E2Es.
+Follow only the selected [feature guide](features/README.md). Keep long-running driver commands alive while reporting progress. Run Herdr evaluations in owned tabs and Rex evaluations on an isolated server. Stop other dispatchers in the same workspace during isolated-state model E2Es.
 
-Use [core lifecycle and viewers](features/core.md) for deterministic core and placement checks. Existing model drivers use legacy pane oracles; follow their backend prerequisites instead of interpreting a core terminal ID as a Herdr pane ID. Do not run model scenarios merely to broaden a deterministic caller/viewer fix.
+Use [core lifecycle and viewers](features/core.md) for deterministic core, profile, fallback, banner-guard, and viewer checks. Do not run model E2Es to cover a deterministic fix.
 
-On a problem, preserve the receipt and inspect the recorded backend before cleanup. Read `startup_ready`, `submission`, `execution_observed` and `native_status` separately. Use the [companion recovery rules](../../../skills/agent-workers/SKILL.md#problems) within the scenario's declared worker choices and assertions. Preserve the original verdict if recovery requires changing those conditions. Before asking the user to interact with a core worker window, require a fresh `verify-viewer` result with `viewer_verified: true`. A delivered result requires `state: done`; review success also requires the driver's outcome assertions.
+On a failure, preserve the receipt and inspect the recorded backend before cleanup. Read `startup_ready`, `submission`, `execution_observed`, and `native_status` separately. Follow [agent-workers recovery](../../../skills/agent-workers/SKILL.md#problems) within the scenario's declared worker choices, and preserve the original verdict if recovery would change scenario conditions. Run a fresh `verify-viewer <id>` with `viewer_verified: true` before directing a user to a core window.
 
 ## Evidence
 
-The printed receipt path is authoritative: most drivers create a child directory beneath `--output`; the catalog driver chooses its own temporary directory. Read `verdict`, assertions, observed outputs, and cleanup results, not just process exit status. Preserve failed receipts as failures and distinguish a fresh run from historical evidence or transcript reanalysis.
-
-Keep receipts, command/version records, and diagnostics locally after cleanup. [Published evidence](../../../e2e/README.md#evidence-and-source-attribution) documents earlier source revisions, not the current checkout. Review and sanitize any artifact before publication; raw catalogs, transcripts, pane text, and configuration can contain private paths or data.
+The printed receipt path is authoritative. Most drivers write a child directory under `--output`, while `skill_catalogs.py` creates its own temporary directory. Check `verdict`, individual assertions, observed outputs, and cleanup results rather than only the exit code. Keep failed receipts as failures, and distinguish fresh runs from historical evidence in [e2e/README.md](../../../e2e/README.md#evidence-and-source-attribution). Sanitize any artifact before publishing so private paths, configs, transcripts, or pane text never leak.
 
 ## Cleanup
 
-Drivers close only their own subprocesses or panes. Verify the receipt's cleanup result; never kill by process name or close unrelated panes. Model loop drivers retain worktrees: inspect first, then use `git worktree remove` on the exact printed path. Preserve its sibling receipt/diagnostics. For isolated-state runs, any manual `agent-workers` cleanup must use the run's recorded configuration and state roots.
-
-The discovery procedure removes its owned installation scratch directory. Never delete the artifact parent or catalog output as cleanup. After teardown, open the receipt again and confirm it still exists. Record any incomplete cleanup explicitly.
+Drivers clean up only their own subprocesses, panes, or blocks. Verify cleanup in the receipt, and never kill by process name or close unrelated panes. For drivers that retain worktrees, inspect first, then remove the exact printed path with `git worktree remove` while keeping sibling receipts. After teardown, reopen the receipt to confirm cleanup did not delete it, and record any incomplete cleanup.
 
 ## Helpers
 
-No new helper scripts. The feature map links the existing repository drivers and their maintained [E2E documentation](../../../e2e/README.md). Use `maintain-verification-skill` with this directory when these procedures drift; report product defects separately from documentation corrections.
+Do not add new helper scripts. Use the existing drivers listed in the [feature map](features/README.md) and documented in [e2e/README.md](../../../e2e/README.md). Use `maintain-verification-skill` when these procedures drift from the codebase.
