@@ -15,14 +15,15 @@ ADAPTER = Path(__file__).resolve().parents[1] / "skills/pstack-adapter"
 OPENAI_POLICY = "policy:\n  allow_implicit_invocation: false\n"
 RUNTIME_PREAMBLE = (
     "## Agent Workers runtime\n\n"
-    "Read [pstack-adapter](../pstack-adapter/SKILL.md) first (overrides upstream tools, "
-    "model defaults, setup, and Cursor paths). Resolve siblings via `../<name>/SKILL.md` "
-    "and relative paths from this folder. Delegate only via `agent-workers` + `workers.toml`; "
-    "no nested workers. User/project rules win; keep unavailable steps unresolved.\n"
+    "Read [pstack-adapter](../pstack-adapter/SKILL.md) first. It overrides upstream tools, "
+    "model defaults, setup, and Cursor paths. Load sibling skills from `../<name>/SKILL.md` "
+    "and resolve relative paths from this folder. Delegate only through `agent-workers` and "
+    "`workers.toml`, with no nested workers. User and project rules take precedence, and "
+    "unavailable steps stay unresolved.\n"
 )
 POTETO_WORKER_GUARD = (
     "**Worker guard:** If you are a worker running from a `brief.md`, skip this runtime "
-    "section and the Subagents/Playbooks sections; follow only Non-negotiables and Principles.\n\n"
+    "section and the Subagents and Playbooks sections. Follow only Non-negotiables and Principles.\n\n"
 )
 
 

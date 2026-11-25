@@ -2,11 +2,11 @@
 
 ## Sub-features
 
-Compare the pinned original pstack and required team-kit trees with upstream HEAD, recording exact revisions and changed paths without updating the installation.
+Compare the pinned `pstack` and `cursor-team-kit` trees in [upstream.json](../../../../skills/pstack-adapter/references/upstream.json) against upstream `HEAD`, reporting exact revisions and changed paths without modifying the checkout.
 
 ## How to get to it (user POV)
 
-The daily GitHub Actions monitor and README status badge use this check. Locally, require Git, Python, and network access to the manifest's public repository. Doctor: inspect `skills/pstack-adapter/references/upstream.json` and run `git --version`; network failures appear in the check's result.
+The daily GitHub Actions monitor and README badge run this script. Locally, you need Git, Python 3.11 or later, and network access to GitHub. Check `git --version` and `skills/pstack-adapter/references/upstream.json` first.
 
 ## Driving it with existing scripts
 
@@ -14,8 +14,10 @@ The daily GitHub Actions monitor and README status badge use this check. Locally
 python3 scripts/check_upstream.py --output "$proof/upstream.json"
 ```
 
-Read the JSON as well as the exit code: 0 means current, 1 means updates need review, 2 means the check could not complete. An update is a valid detection result, not a driver failure. The script removes its temporary Git checkout; reopen the retained JSON after it exits. An optional `--manifest` can select an existing historical pin without editing the product manifest.
+Check both the JSON output and the exit code: `0` means current, `1` means upstream has updates to review, and `2` means the check could not complete. Exit `1` is a valid detection result, not a script error. Reopen `$proof/upstream.json` after the script cleans up its temporary checkout. Pass `--manifest` to test against a historical pin without editing the tracked manifest.
 
 ## Gotchas
 
-This checks source drift, not runtime compatibility, and does not apply upgrades. Do not rewrite the pin or create an artificial old-pin scenario unless investigating update detection itself. See [update instructions](../../../../skills/pstack-adapter/references/compatibility.md) before acting on detected changes.
+- This detects source drift only. It does not test runtime compatibility or apply upgrades.
+- Do not edit the pin to fabricate drift unless you are testing update detection itself.
+- Follow [compatibility.md](../../../../skills/pstack-adapter/references/compatibility.md) before applying detected updates.

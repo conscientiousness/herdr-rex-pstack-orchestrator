@@ -1,28 +1,22 @@
-# workers.toml — configuration for the agent-workers skill.
+# workers.toml: configuration for the agent-workers skill.
 #
-# agent-workers reads this file from:
-#
+# Copy this file to:
 #     $XDG_CONFIG_HOME/herdr-orchestrator/workers.toml
 #     (~/.config/herdr-orchestrator/workers.toml when XDG_CONFIG_HOME is unset)
 #
-# Copy it there, keep the workers you actually use, and adjust models,
-# efforts, and permission arguments. Model names below are examples;
-# what is available depends on the providers you have authenticated.
+# Keep only the workers you use, and adjust models, efforts, and permission
+# flags. Model names below are examples. One worker is enough; roles may share it.
 #
-# After writing the file, verify every worker once:
-#
+# Verify your setup once after editing:
 #     python3 <skill-dir>/scripts/agent-workers.py check --cwd /some/work/dir
 #
-# A worker name must match [a-z][a-z0-9-]{0,15}.
-# Descriptions are optional controller guidance, not model capability rankings.
-# Keep just one worker if desired; roles can share it. Upgrade older installed
-# agent-workers scripts before adding description to a shared configuration.
+# Worker names match [a-z][a-z0-9-]{0,15}. Descriptions guide controller
+# selection when no role matches.
 
-# Most tasks with an open pane at one time. Default 4.
+# Maximum open tasks in one capacity scope. Default 4.
 max_active_workers = 4
 
-# When a task runs longer than this many minutes, agent-workers wait notifies once.
-# Default 180.
+# Emit a long_running notice once after this many minutes. Default 180.
 notify_after_minutes = 180
 
 [workers.glm]
@@ -36,32 +30,28 @@ effort = "max" # Pi thinking level: off, minimal, low, medium, high, xhigh, max
 description = "Implementation, ordinary fixes, and refactoring."
 harness = "codex"
 model = "gpt-6.1-sol"
-effort = "medium" # becomes Codex model_reasoning_effort
-# Writes in its cwd and the task directory without permission prompts
-# (verified 2026-10-09). The flags you choose are your authorization
-# for this worker.
+effort = "medium" # Codex model_reasoning_effort
+# These flags define the worker's authorization.
 args = ["-s", "workspace-write", "-a", "on-request", "-c", 'approvals_reviewer="auto_review"']
 
 [workers.haiku]
 description = "Independent review of a bounded diff and its evidence."
 harness = "claude"
 model = "haiku"
-effort = "max" # passed as claude --effort
+effort = "max" # claude --effort
 args = ["--permission-mode", "auto"]
 
 [workers.flash]
 description = "Fast investigation and bounded fixes."
 harness = "agy"
-# Run `agy models` for available IDs. Use either an effort-suffixed ID without
-# `effort`, or a base model name (e.g. "gemini-3.8-flash") with `effort`.
+# Run `agy models` for available IDs. Use an effort-suffixed ID without `effort`,
+# or a base model name with `effort`.
 model = "gemini-3.8-flash-high"
 args = ["--mode", "auto"]
 
-# Optional. pstack-adapter uses roles for routing; agent-workers stats reports missing workers.
-# A single role names one worker from [workers]; a panel role lists one
-# worker per review task. Repeated names start separate fresh processes.
+# Optional role routing for pstack-adapter.
+# Single roles name one worker; panel roles list one worker per fresh task.
 [roles]
 "feature, refactoring" = "gpt"
 "interrogate reviewers" = ["glm", "haiku"]
-# With only gpt configured, use ["gpt", "gpt"] for two same-model reviews.
-# Disclose when a chosen upstream workflow requires model diversity.
+# With one worker configured, use ["gpt", "gpt"] for two independent runs.
