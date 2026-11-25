@@ -34,8 +34,8 @@ For legacy Pi workers, `agent-workers` also requires the Herdr Pi integration to
 |---|---|---|
 | `running` / `long_running` | Any file on disk | Keep waiting; worker may still update it. |
 | `done` | `completed` | Delivered; independently verify diff/behavior/verdict. |
-| `done` | `failed` | Delivered; worker reports failure. Read report and inform user. |
-| `done` | `blocked` | Delivered; relay `question` to user, then launch fresh task with answer. |
+| `done` | `failed` | Delivered; inspect the report and apply [Problems](../SKILL.md#problems). |
+| `done` | `blocked` | Delivered; answer routine questions from the assignment and relay decisions requiring user input. Continue with a fresh task when resolved. |
 
 `done` means finished turn + valid result (kept for v0.1.0 compatibility), not verified success. `check` returns `ok: true` only for `done` + `status: "completed"` + confirmed closure.
 
@@ -61,7 +61,7 @@ A valid `result.json` has exactly six keys: matching `task_id` and `nonce`, `sta
 
 ## Problem recovery
 
-Follow [Problems](../SKILL.md#problems) before cleanup. Normal `wait` returns stored problem states immediately without re-polling.
+Follow [Problems](../SKILL.md#problems) to decide when to recheck, submit, replace, or escalate. Normal `wait` returns stored problem states immediately without re-polling. After a batch wait returns on one problem, re-arm the wait for the other running IDs so the stored problem does not keep interrupting their wait.
 
 Use `agent-workers list --verbose` (or `--active` / `--limit <n>` for filtered listings; default `list` is compact) to locate the full stored backend binding, then inspect the recorded terminal:
 
@@ -71,7 +71,7 @@ Use `agent-workers list --verbose` (or `--active` / `--limit <n>` for filtered l
 
 Recovery commands:
 - **`agent-workers wait <task-id> --recheck`:** Re-observes explicit task IDs (e.g., after user clears a dialog or an unacknowledged task starts). Never submits, resends, restarts, or reopens closed/completed tasks; `submission: "not_sent"` stays `start_failed`. Exited task results remain on disk for inspection and are never promoted to `done` without turn-completion evidence.
-- **`agent-workers submit <task-id>`:** After user resolves readiness and approves recovery, sends the original brief once on an unclosed Rex/core task with `submission: "not_sent"`, rechecking native idle and saving a new baseline. Rejects `sent`, `unknown`, historical, closed, or completed tasks with `submission_unsafe`. Legacy recovery requires inspection, closure, and a fresh task. Require fresh `verify-viewer` before asking the user to interact with a core window.
+- **`agent-workers submit <task-id>`:** Once readiness is confirmed, sends the original brief once on an unclosed Rex/core task with `submission: "not_sent"`, rechecking native idle and saving a new baseline. Rejects `sent`, `unknown`, historical, closed, or completed tasks with `submission_unsafe`. Start `wait` for the recovered task after submission. Legacy recovery requires inspection, closure, and a fresh task. Require fresh `verify-viewer` before asking the user to interact with a core window.
 - **`agent-workers close <task-id>`:** Retry whenever `closed: false` (slot stays occupied until confirmed). Closing an unfinished worker cancels it. Only explicit not-found responses prove a legacy pane is already gone; other errors leave cleanup unresolved.
 
 **Invalid records & lost placements:** A lost legacy placement can leave an empty pane—inspect the original server before removal. `list` shows `task_invalid` records alongside healthy history; each unclosed invalid record reserves one slot in **every** scope (since owner/terminal is unknown). Full `run` returns `worker_limit` naming invalid IDs; `wait` without IDs skips them; targeted `wait`/`close` returns `task_invalid`. Inspect the original runtime before removing an invalid task directory manually.
