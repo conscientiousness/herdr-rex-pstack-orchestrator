@@ -31,15 +31,8 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-HARNESSES = ("pi", "codex", "claude", "agy")
-HARNESS_LABELS = {"pi": "Pi", "codex": "Codex", "claude": "Claude Code", "agy": "Antigravity"}
-HARNESS_PROCESS_NAMES = {
-    "pi": {"pi"},
-    "codex": {"codex"},
-    "claude": {"claude", "claude-code"},
-    "agy": {"agy", "antigravity"},
-}
-ALL_HARNESS_PROCESS_NAMES = {name for names in HARNESS_PROCESS_NAMES.values() for name in names}
+from worker_runtime import ALL_HARNESS_PROCESS_NAMES, CONTROLLER_SESSION_ENV, HARNESSES, WORKER_UNSET_ENV, worker_environment
+
 CONFIG_TOP_KEYS = {"max_active_workers", "notify_after_minutes", "workers", "roles"}
 WORKER_KEYS = {"harness", "model", "provider", "effort", "args", "description"}
 WORKER_NAME_RE = re.compile(r"[a-z][a-z0-9-]{0,15}")
@@ -48,12 +41,6 @@ CONFIG_PROFILE_ENV = "AGENT_WORKERS_PROFILE"
 CONFIG_PATH_ENV = "AGENT_WORKERS_CONFIG"
 TASK_ID_RE = re.compile(r"t-[0-9a-f]{6}")
 MISSING_PANE_CODES = {"pane_not_found", "tab_not_found", "workspace_not_found"}
-# Session IDs a controller harness exports to its tool commands.
-CONTROLLER_SESSION_ENV = {
-    "codex": "CODEX_THREAD_ID",
-    "claude": "CLAUDE_CODE_SESSION_ID",
-    "agy": "ANTIGRAVITY_CONVERSATION_ID",
-}
 HERDR_CONTEXT_ENV = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_SOCKET_PATH")
 REX_CONTEXT_ENV = ("REX_SESSION", "REX_BLOCK")
 
@@ -309,7 +296,7 @@ def task_dir(task_id):
 
 
 def worker_label(worker, harness):
-    return f"{worker} · {HARNESS_LABELS[harness]}"
+    return f"{worker} · {HARNESSES[harness].label}"
 
 
 @contextmanager
@@ -624,7 +611,7 @@ def load_config(path=None, *, profile=None):
         if "description" in spec and not isinstance(spec["description"], str):
             fail("config_invalid", f"worker {name!r} description must be a string")
         harness = spec.get("harness")
-        if harness not in HARNESSES:
+        if not isinstance(harness, str) or harness not in HARNESSES:
             fail("config_invalid", f"worker {name!r} needs harness set to one of: {', '.join(HARNESSES)}")
         model = spec.get("model")
         if not isinstance(model, str) or not model.strip():
@@ -633,7 +620,7 @@ def load_config(path=None, *, profile=None):
         if provider is not None:
             if not isinstance(provider, str) or not provider.strip():
                 fail("config_invalid", f"worker {name!r} provider must be a non-empty string")
-            if harness != "pi":
+            if not HARNESSES[harness].provider_flag:
                 fail("config_invalid", f"worker {name!r} sets provider, which only the pi harness accepts")
         effort = spec.get("effort")
         if effort is not None and (not isinstance(effort, str) or not effort.strip()):
@@ -780,32 +767,24 @@ def label_worker_pane(pane_id, worker, harness):
 
 
 def launch_args(worker, directory):
-    harness, model, effort = worker["harness"], worker["model"], worker["effort"]
+    spec = HARNESSES[worker["harness"]]
     args = []
-    if harness == "pi":
-        if worker["provider"]:
-            args += ["--provider", worker["provider"]]
-        args += ["--model", model]
-        if effort:
-            args += ["--thinking", effort]
-    elif harness == "codex":
-        args += ["-m", model]
-        if effort:
-            args += ["-c", f'model_reasoning_effort="{effort}"']
-        args += ["--add-dir", str(directory)]
-    else:  # claude, agy
-        args += ["--model", model]
-        if effort:
-            args += ["--effort", effort]
+    if spec.provider_flag and worker["provider"]:
+        args += [spec.provider_flag, worker["provider"]]
+    args += [spec.model_flag, worker["model"]]
+    if worker["effort"]:
+        args += [arg.format(effort=worker["effort"]) for arg in spec.effort_args]
+    if spec.add_task_dir:
         args += ["--add-dir", str(directory)]
     return args + list(worker["args"])
 
 
 def native_launch_args(worker, directory, backend):
     args = launch_args(worker, directory)
-    if worker["harness"] == "codex":
+    spec = HARNESSES[worker["harness"]]
+    if spec.native_no_daemon:
         if any(arg == "--daemon" or arg.startswith(("--daemon=", "--no-daemon=")) for arg in args):
-            fail("config_invalid", f"{backend} Codex requires --no-daemon; conflicting daemon arguments were not changed")
+            fail("config_invalid", f"{backend} {spec.label} requires --no-daemon; conflicting daemon arguments were not changed")
         if "--no-daemon" not in args:
             args.append("--no-daemon")
     return args
@@ -871,7 +850,7 @@ def pane_owning_process(ancestors):
 
 
 def expected_process_names(harnesses):
-    return {name for harness in harnesses for name in HARNESS_PROCESS_NAMES.get(harness, {harness})}
+    return {name for harness in harnesses for name in HARNESSES[harness].process_names}
 
 
 def controller_process_ancestor(ancestors):
@@ -915,9 +894,8 @@ def _herdr_session_mismatch(pane, controllers):
     session = pane.get("agent_session") if isinstance(pane.get("agent_session"), dict) else {}
     for harness in controllers:
         own = os.environ[CONTROLLER_SESSION_ENV[harness]]
-        session_agents = HARNESS_PROCESS_NAMES.get(harness, {harness}) | {harness}
-        if harness == "agy":
-            session_agents |= {"antigravity-cli"}
+        spec = HARNESSES[harness]
+        session_agents = (harness, *spec.process_names, *spec.legacy_session_aliases)
         if session.get("agent") in session_agents and session.get("value") and session["value"] != own:
             return harness, session["value"], own
     return None
@@ -1264,8 +1242,8 @@ def cmd_run(args):
         brief_text = brief_source.read_text(encoding="utf-8", errors="replace")
     worker = config["workers"].get(args.worker)
     binding = caller.get("binding") if caller else None
-    if binding is None and binary is None and worker is not None and worker["harness"] == "pi":
-        require_pi_integration()
+    if binding is None and binary is None and worker is not None:
+        require_legacy_integrations((worker["harness"],))
     if binary:
         binding = core.new_binding(binary)
     launched = start_task(config, args.worker, brief_text, resolve_cwd(args.cwd),
@@ -1419,9 +1397,15 @@ def cmd_verify_viewer(args):
     emit({"task_id": args.task_id, **viewer_fields(task)})
 
 
-def _has_dismissible_overlay(screen):
-    """Detect agy modal banners (e.g. 'esc to dismiss') that eat input while reporting idle."""
-    return "esc to dismiss" in " ".join(screen.split()).lower()
+def prepare_send(directory, task, read_screen, blocked_error):
+    """Check visible startup blockers before recording a send attempt."""
+    harness = task.get("harness")
+    spec = HARNESSES.get(harness) if isinstance(harness, str) else None
+    if spec and spec.screen_blocker:
+        screen = " ".join(read_screen().split()).lower()
+        if spec.screen_blocker in screen:
+            raise blocked_error(f"{harness} startup banner or modal overlay detected ({spec.screen_blocker!r})")
+    return f"New task {task['task_id']}. Read {directory / 'brief.md'} in full and follow it exactly."
 
 
 def submit_core_task(directory, task, state):
@@ -1431,16 +1415,16 @@ def submit_core_task(directory, task, state):
         baseline = terminal.get("turn")
         if isinstance(baseline, bool) or not isinstance(baseline, int) or baseline < 0:
             raise core.CoreError("native turn baseline missing; no task was sent")
-        if task.get("harness") == "agy":
-            screen = core.call(binding, "terminal.read", terminal=binding["terminal"], lines=0)["text"]
-            if _has_dismissible_overlay(screen):
-                raise core.CoreError("agy startup banner or modal overlay detected ('esc to dismiss'); no task was sent")
+        pointer = prepare_send(
+            directory, task,
+            lambda: core.call(binding, "terminal.read", terminal=binding["terminal"], lines=0)["text"],
+            lambda message: core.CoreError(f"{message}; no task was sent"),
+        )
         state.update(startup_ready=True, native_status=core.status(terminal), baseline_seq=baseline,
                      state="not_started", problem=None, submission="unknown")
         save_state(directory, state)
         if state["closed"] or state["state"] == "done":
             return
-        pointer = f"New task {task['task_id']}. Read {directory / 'brief.md'} in full and follow it exactly."
         sent = core.call(binding, "terminal.send", terminal=binding["terminal"], text=pointer, **{"if": "idle"})
         state["submission"] = "sent"
         state["state"] = "running" if sent.get("started") is True else "not_started"
@@ -1538,17 +1522,16 @@ def submit_rex_task(directory, task, state):
     binding = task["backend"]
     try:
         baseline = rex_ready(binding)
-        if task.get("harness") == "agy":
-            screen = rex.capture(binding, binding["block"], visible=True)
-            if _has_dismissible_overlay(screen):
-                raise rex.RexError("agy startup banner or modal overlay detected ('esc to dismiss')", "not_sent")
+        pointer = prepare_send(
+            directory, task, lambda: rex.capture(binding, binding["block"], visible=True),
+            lambda message: rex.RexError(message, "not_sent"),
+        )
         state.update(startup_ready=True, native_status="idle", baseline_status_at=baseline["updated_at"],
                      baseline_status_owner=baseline["owner"],
                      state="not_started", problem=None, submission="unknown")
         save_state(directory, state)
         if state["closed"] or state["state"] == "done":
             return
-        pointer = f"New task {task['task_id']}. Read {directory / 'brief.md'} in full and follow it exactly."
         rex.send(binding, pointer, baseline)
         state.update(submission="sent", problem="task submitted; execution acknowledgement not observed; "
                      "inspect and use wait --recheck, never resend")
@@ -1647,7 +1630,7 @@ def start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller):
         write_json(directory / "task.json", task)
         # The Rex server's PATH can lack the controller's shims (e.g. mise node for Pi).
         command = [sys.executable, str(Path(__file__).resolve()), "--exec-rex-worker",
-                   os.environ.get("PATH", os.defpath), os.path.abspath(program), *argv]
+                   worker_environment().get("PATH", os.defpath), os.path.abspath(program), *argv]
         try:
             try:
                 placement = rex.launch(binding, caller["window_id"], windows, command, cwd, PANES_PER_TAB)
@@ -1780,25 +1763,22 @@ def start_core_task(config, worker_name, brief_text, cwd, skip_if_full, caller_p
             "brief_path": task["brief_path"], "task_dir": str(directory)}
 
 
-def wait_for_pi_session(agent, deadline):
-    """Do not submit input to Pi's pre-session trust dialog.
-
-    Herdr 0.9.3 can classify that dialog as idle/interactive_ready. The Pi
-    integration reports its session only after project trust is resolved and
-    the interactive input handler is installed. Fresh panes have no old session.
-    """
+def wait_for_legacy_session(agent, harness, deadline):
+    # Herdr 0.9.3 can classify Pi's pre-session trust dialog as idle. The
+    # integration reports a session once trust and the input handler are ready.
+    spec = HARNESSES[harness]
     while time.monotonic() < deadline:
         entry = herdr_path(herdr("agent", "get", agent), "result", "agent")
         if entry.get("agent_status") == "blocked":
-            raise HerdrError("Pi is blocked during startup; no task prompt was sent")
+            raise HerdrError(f"{spec.label} is blocked during startup; no task prompt was sent")
         session = entry.get("agent_session") or {}
-        if (session.get("agent") == "pi" and session.get("source") == "herdr:pi"
+        if (session.get("agent") == harness and session.get("source") == spec.legacy_session_source
                 and session.get("value") and entry.get("agent_status") in ("idle", "done")):
             return
         time.sleep(POLL_SECONDS)
-    raise HerdrError("Pi did not report a ready session; no task prompt was sent. "
-                     "Inspect its pane for a startup dialog and verify that the Pi "
-                     "integration is installed with herdr integration install pi")
+    raise HerdrError(f"{spec.label} did not report a ready session; no task prompt was sent. "
+                     f"Inspect its pane for a startup dialog and verify that the {spec.label} "
+                     f"integration is installed with herdr integration install {harness}")
 
 
 def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text, caller=None):
@@ -1927,8 +1907,12 @@ def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller
             started_type = (doc.get("result") or {}).get("type")
             if started_type != "agent_started":
                 start_problem = f"herdr agent start reported {started_type!r}"
-            elif worker["harness"] == "pi":
-                wait_for_pi_session(agent, startup_deadline)
+            else:
+                harness = worker["harness"]
+                if HARNESSES[harness].legacy_session_source:
+                    wait_for_legacy_session(agent, harness, startup_deadline)
+                pointer = prepare_send(directory, task, lambda: visible_text(pane_id),
+                                       lambda message: HerdrError(f"{message}; no task prompt was sent"))
         except HerdrError as exc:
             start_problem = str(exc)
         if start_problem:
@@ -1955,7 +1939,6 @@ def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller
         if state["closed"] or state["state"] == "done":
             return run_object(state["state"])
 
-        pointer = f"New task {task_id}. Read {directory / 'brief.md'} in full and follow it exactly."
         state["submission"] = "unknown"
         save_state(directory, state)
         if state["closed"] or state["state"] == "done":
@@ -2793,7 +2776,7 @@ def pi_providers():
     return [{"provider": provider, "models": count} for provider, count in counts.items()]
 
 
-def pi_integration_status():
+def legacy_integration_status(harness):
     """Read Herdr's local plaintext protocol without exposing paths or diagnostics."""
     try:
         proc = subprocess.run(["herdr", "integration", "status"],
@@ -2802,23 +2785,26 @@ def pi_integration_status():
         return {"status": "unavailable", "version": None}
     if proc.returncode != 0:
         return {"status": "unavailable", "version": None}
-    lines = [line for line in proc.stdout.splitlines() if line.startswith("pi:")]
+    prefix = f"{harness}: "
+    lines = [line.removeprefix(prefix) for line in proc.stdout.splitlines() if line.startswith(f"{harness}:")]
     if len(lines) == 1:
         match = re.fullmatch(
-            r"pi: (?:not installed|(?:current|needs repair) \((?:v[0-9]+|legacy)\)"
+            r"(?:not installed|(?:current|needs repair) \((?:v[0-9]+|legacy)\)"
             r"|outdated \((?:v[0-9]+|legacy) < v[0-9]+\)) \(.+\)", lines[0])
         if match:
-            state = lines[0][4:].split(" (")[0].replace(" ", "_")
-            version = re.match(r"pi: [a-z ]+ \(v([0-9]+)\b", lines[0])
+            state = lines[0].split(" (")[0].replace(" ", "_")
+            version = re.match(r"[a-z ]+ \(v([0-9]+)\b", lines[0])
             return {"status": state,
                     "version": int(version[1]) if state != "not_installed" and version else None}
     return {"status": "unknown", "version": None}
 
 
-def require_pi_integration():
-    if pi_integration_status()["status"] == "not_installed":
-        fail("pi_integration_missing",
-             "Pi requires the Herdr integration; install it with herdr integration install pi")
+def require_legacy_integrations(harnesses):
+    for harness in dict.fromkeys(harnesses):
+        spec = HARNESSES[harness]
+        if spec.legacy_session_source and legacy_integration_status(harness)["status"] == "not_installed":
+            fail(f"{harness}_integration_missing",
+                 f"{spec.label} requires the Herdr integration; install it with herdr integration install {harness}")
 
 
 def herdr_server_version():
@@ -2851,7 +2837,7 @@ def cmd_detect(args):
         "python": ".".join(str(part) for part in sys.version_info[:3]),
         "harnesses": harnesses,
         "pi_providers": pi_providers() if harnesses["pi"] else [],
-        "pi_integration": pi_integration_status() if legacy else {"status": "native", "version": None},
+        "pi_integration": legacy_integration_status("pi") if legacy else {"status": "native", "version": None},
         "config": {
             "path": str(cfg_path),
             "exists": cfg_path.is_file(),
@@ -2870,8 +2856,8 @@ def cmd_check(args):
     unknown = [name for name in names if name not in config["workers"]]
     if unknown:
         fail("unknown_worker", f"no worker named {', '.join(unknown)} in {cfg_path}")
-    if binding is None and any(config["workers"][name]["harness"] == "pi" for name in names):
-        require_pi_integration()
+    if binding is None:
+        require_legacy_integrations(config["workers"][name]["harness"] for name in names)
     cwd = resolve_cwd(args.cwd)
     deadline = time.monotonic() + args.max_seconds
     pending = list(names)
@@ -3056,7 +3042,7 @@ def cli():
         # The Rex server can inherit another controller's multiplexer and harness environment.
         keep = {key: value for key, value in os.environ.items()
                 if not key.startswith(("HERDR", "HC_", "ANTIGRAVITY_", "AGENT_WORKERS_"))
-                and key not in (*CONTROLLER_SESSION_ENV.values(), "PI_SESSION_ID", "CLAUDECODE")}
+                and key not in WORKER_UNSET_ENV}
         keep["PATH"] = sys.argv[2]
         os.execve(sys.argv[3], sys.argv[3:], keep)
     main()

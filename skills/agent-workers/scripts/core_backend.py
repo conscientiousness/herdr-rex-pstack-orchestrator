@@ -12,6 +12,8 @@ import sys
 import time
 import tomllib
 
+from worker_runtime import WORKER_UNSET_ENV, worker_environment
+
 
 class CoreError(Exception):
     def __init__(self, message, kind=None):
@@ -176,8 +178,7 @@ def launch(binding, harness, argv, cwd):
         raise CoreError(f"configured harness {harness} is not installed")
     # The core can have inherited a different controller's environment.
     command = [sys.executable, str(Path(__file__).resolve()), "--exec", program, *argv]
-    env = {k: os.environ[k] for k in ("PATH", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR")
-           if k in os.environ}
+    env = worker_environment(include_xdg=True)
     return call(binding, "terminal.run", argv=command, cwd=str(cwd), name=binding["name"],
                 labels={"horch.task": binding["name"], "horch.nonce": binding["nonce"]},
                 no_parent=True, no_notify=True, env=env)
@@ -246,7 +247,7 @@ def close(binding):
 if __name__ == "__main__" and sys.argv[1:2] == ["--exec"]:
     for key in list(os.environ):
         if (key.startswith(("HERDR", "ANTIGRAVITY_", "AGENT_WORKERS_"))
-                or key in ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID", "CLAUDECODE")):
+                or key in WORKER_UNSET_ENV):
             os.environ.pop(key, None)
     os.environ["HERDR_ENV"] = "0"
     os.execvpe(sys.argv[2], sys.argv[2:], os.environ)
