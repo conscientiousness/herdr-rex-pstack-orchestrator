@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Run the Agent Workers CLI."""
-
 from importlib import import_module
 
 

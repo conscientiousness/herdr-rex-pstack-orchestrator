@@ -18,7 +18,6 @@ DEFAULT_MANIFEST = (
 
 
 def git(repo, *args):
-    # Do not use credential helpers, global config, hooks, or interactive prompts.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     env.update(
         GIT_CONFIG_NOSYSTEM="1",
@@ -88,9 +87,7 @@ def check(manifest_path, result):
             if not isinstance(upstream_version, str) or not upstream_version.strip():
                 raise ValueError("upstream pstack metadata has no valid version")
         else:
-            # Removing a plugin or its metadata is a real update, not a git failure.
             upstream_version = "unavailable (pstack metadata removed)"
-        # No rename detection: both paths remain visible when files move.
         names = git(
             repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
             "--name-only", "-z", pinned, upstream, "--", *PLUGINS
@@ -145,7 +142,6 @@ def main():
                 stream.write(summary(result))
     except OSError as exc:
         result.update(status="error", error=f"Could not publish check result: {exc}")
-        # Preserve an error artifact if summary publication failed after JSON was written.
         if args.output:
             try:
                 args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

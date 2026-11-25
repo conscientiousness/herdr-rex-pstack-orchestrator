@@ -1,5 +1,3 @@
-"""Harness facts and the controller environment forwarded to workers."""
-
 import os
 from dataclasses import dataclass
 
@@ -44,7 +42,6 @@ WORKER_UNSET_ENV = set(CONTROLLER_SESSION_ENV.values()) | {
 
 
 def worker_environment(*, include_xdg=False):
-    """Forward controller PATH and, for core, the existing XDG overrides."""
     keys = ("PATH",)
     if include_xdg:
         keys += ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR")

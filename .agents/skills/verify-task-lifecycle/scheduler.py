@@ -1,5 +1,3 @@
-"""Replay a choice prefix, then take the first eligible actor at each fork."""
-
 from queue import SimpleQueue
 from threading import Event, Thread, current_thread
 

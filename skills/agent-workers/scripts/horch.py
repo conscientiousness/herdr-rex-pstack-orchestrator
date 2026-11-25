@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Compatibility entry point for Agent Workers."""
-
 import sys
 from importlib import import_module
 

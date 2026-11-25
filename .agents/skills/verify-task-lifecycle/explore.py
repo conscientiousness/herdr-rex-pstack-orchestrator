@@ -33,7 +33,7 @@ NOW = 1893456060
 class Case:
     name: str
     actors: tuple[str, ...]
-    bound: int = 0  # Switches away from an actor that could keep running.
+    bound: int = 0
     backend: str = 'core'
     state: str = 'running'
     submission: str = 'sent'
@@ -190,7 +190,6 @@ class World:
         if state == 'done' and before['state'] != 'done':
             cause = value['settled_by']
             if cause == 'result_file':
-                # Keep the settling waiter's observations for checks at close and delivery.
                 reads = self.command.null_reads
                 self.fallback_reads[task_id] = reads
                 eligible = (sub == 'sent' and value['saw_working'] and self.result == 'stable'
@@ -294,7 +293,6 @@ class World:
 
     def sleep(self, seconds):
         self.step()
-        # No further ACK in the no-ack fixture unless another actor intervenes.
         self.clock += max(seconds, 90)
 
     def worker(self, action):
