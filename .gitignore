@@ -128,3 +128,5 @@ e2e/evidence/*
 !e2e/run_wait.py
 !e2e/startup_guards.py
 !e2e/result_fallback.py
+!e2e/migration_loop.py
+!e2e/evidence/migration.json

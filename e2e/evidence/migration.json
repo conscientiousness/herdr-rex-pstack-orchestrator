@@ -1,0 +1,481 @@
+{
+  "scenario": "cold-start agent migration via docs/MIGRATE.md",
+  "verdict": "pass",
+  "checks": {
+    "agent_exit_zero": true,
+    "setup_had_old_names": true,
+    "project_old_names_removed": true,
+    "global_old_names_removed": true,
+    "no_old_directories_left": true,
+    "project_bundle_current": true,
+    "project_agents_kept": true,
+    "global_core_current": true,
+    "global_agents_kept": true,
+    "global_stays_core_only": true,
+    "unrelated_skill_kept": true,
+    "workers_toml_unchanged": true,
+    "new_adapter_has_cleanup_rule": true
+  },
+  "model": "sonnet",
+  "agent": "claude-code 2.1.332",
+  "duration_seconds": 125,
+  "old_revisions": {
+    "bundle": "d772e90",
+    "core": "88533b5^"
+  },
+  "guide": "https://github.com/conscientiousness/herdr-rex-pstack-orchestrator/blob/main/docs/MIGRATE.md",
+  "before": {
+    "project": {
+      "agent-workers": [
+        "Claude Code"
+      ],
+      "architect": [
+        "Claude Code"
+      ],
+      "arena": [
+        "Claude Code"
+      ],
+      "automate-me": [
+        "Claude Code"
+      ],
+      "benchmark-checklist": [
+        "Claude Code"
+      ],
+      "blast-radius": [
+        "Claude Code"
+      ],
+      "bro": [
+        "Claude Code"
+      ],
+      "control-cli": [
+        "Claude Code"
+      ],
+      "control-ui": [
+        "Claude Code"
+      ],
+      "correct": [
+        "Claude Code"
+      ],
+      "create-formal-verification-skill": [
+        "Claude Code"
+      ],
+      "create-verification-skill": [
+        "Claude Code"
+      ],
+      "deslop": [
+        "Claude Code"
+      ],
+      "figure-it-out": [
+        "Claude Code"
+      ],
+      "house-style": [
+        "Claude Code"
+      ],
+      "how": [
+        "Claude Code"
+      ],
+      "in-your-own-words": [
+        "Claude Code"
+      ],
+      "interrogate": [
+        "Claude Code"
+      ],
+      "ketchup": [
+        "Claude Code"
+      ],
+      "ketchup-video": [
+        "Claude Code"
+      ],
+      "maintain-formal-verification-skill": [
+        "Claude Code"
+      ],
+      "maintain-verification-skill": [
+        "Claude Code"
+      ],
+      "no-comments": [
+        "Claude Code"
+      ],
+      "poteto-mode": [
+        "Claude Code"
+      ],
+      "principle-attack-the-premise": [
+        "Claude Code"
+      ],
+      "principle-boundary-discipline": [
+        "Claude Code"
+      ],
+      "principle-build-the-lever": [
+        "Claude Code"
+      ],
+      "principle-encode-lessons-in-structure": [
+        "Claude Code"
+      ],
+      "principle-exhaust-the-design-space": [
+        "Claude Code"
+      ],
+      "principle-experience-first": [
+        "Claude Code"
+      ],
+      "principle-explain-the-number": [
+        "Claude Code"
+      ],
+      "principle-fix-root-causes": [
+        "Claude Code"
+      ],
+      "principle-foundational-thinking": [
+        "Claude Code"
+      ],
+      "principle-guard-the-context-window": [
+        "Claude Code"
+      ],
+      "principle-laziness-protocol": [
+        "Claude Code"
+      ],
+      "principle-make-operations-idempotent": [
+        "Claude Code"
+      ],
+      "principle-migrate-callers-then-delete-legacy-apis": [
+        "Claude Code"
+      ],
+      "principle-minimize-reader-load": [
+        "Claude Code"
+      ],
+      "principle-model-the-domain": [
+        "Claude Code"
+      ],
+      "principle-never-block-on-the-human": [
+        "Claude Code"
+      ],
+      "principle-outcome-oriented-execution": [
+        "Claude Code"
+      ],
+      "principle-prove-it-works": [
+        "Claude Code"
+      ],
+      "principle-redesign-from-first-principles": [
+        "Claude Code"
+      ],
+      "principle-separate-before-serializing-shared-state": [
+        "Claude Code"
+      ],
+      "principle-sequence-verifiable-units": [
+        "Claude Code"
+      ],
+      "principle-subtract-before-you-add": [
+        "Claude Code"
+      ],
+      "principle-test-behavior-not-implementation": [
+        "Claude Code"
+      ],
+      "principle-type-system-discipline": [
+        "Claude Code"
+      ],
+      "pstack-herdr": [
+        "Claude Code"
+      ],
+      "recall": [
+        "Claude Code"
+      ],
+      "reflect": [
+        "Claude Code"
+      ],
+      "reframe": [
+        "Claude Code"
+      ],
+      "sharpen": [
+        "Claude Code"
+      ],
+      "show-me-your-work": [
+        "Claude Code"
+      ],
+      "statechart": [
+        "Claude Code"
+      ],
+      "swarm": [
+        "Claude Code"
+      ],
+      "tdd": [
+        "Claude Code"
+      ],
+      "teach": [
+        "Claude Code"
+      ],
+      "technical-writing": [
+        "Claude Code"
+      ],
+      "typescript-best-practices": [
+        "Claude Code"
+      ],
+      "unslop": [
+        "Claude Code"
+      ],
+      "why": [
+        "Claude Code"
+      ]
+    },
+    "global": {
+      "herdr-orchestrator": [
+        "Claude Code"
+      ]
+    }
+  },
+  "after": {
+    "project": {
+      "agent-workers": [
+        "Claude Code",
+        "Pi"
+      ],
+      "architect": [
+        "Claude Code",
+        "Pi"
+      ],
+      "arena": [
+        "Claude Code",
+        "Pi"
+      ],
+      "automate-me": [
+        "Claude Code",
+        "Pi"
+      ],
+      "benchmark-checklist": [
+        "Claude Code",
+        "Pi"
+      ],
+      "blast-radius": [
+        "Claude Code",
+        "Pi"
+      ],
+      "bro": [
+        "Claude Code",
+        "Pi"
+      ],
+      "control-cli": [
+        "Claude Code",
+        "Pi"
+      ],
+      "control-ui": [
+        "Claude Code",
+        "Pi"
+      ],
+      "correct": [
+        "Claude Code",
+        "Pi"
+      ],
+      "create-formal-verification-skill": [
+        "Claude Code",
+        "Pi"
+      ],
+      "create-verification-skill": [
+        "Claude Code",
+        "Pi"
+      ],
+      "deslop": [
+        "Claude Code",
+        "Pi"
+      ],
+      "figure-it-out": [
+        "Claude Code",
+        "Pi"
+      ],
+      "house-style": [
+        "Claude Code",
+        "Pi"
+      ],
+      "how": [
+        "Claude Code",
+        "Pi"
+      ],
+      "in-your-own-words": [
+        "Claude Code",
+        "Pi"
+      ],
+      "interrogate": [
+        "Claude Code",
+        "Pi"
+      ],
+      "ketchup": [
+        "Claude Code",
+        "Pi"
+      ],
+      "ketchup-video": [
+        "Claude Code",
+        "Pi"
+      ],
+      "maintain-formal-verification-skill": [
+        "Claude Code",
+        "Pi"
+      ],
+      "maintain-verification-skill": [
+        "Claude Code",
+        "Pi"
+      ],
+      "no-comments": [
+        "Claude Code",
+        "Pi"
+      ],
+      "poteto-mode": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-attack-the-premise": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-boundary-discipline": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-build-the-lever": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-encode-lessons-in-structure": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-exhaust-the-design-space": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-experience-first": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-explain-the-number": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-fix-root-causes": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-foundational-thinking": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-guard-the-context-window": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-laziness-protocol": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-make-operations-idempotent": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-migrate-callers-then-delete-legacy-apis": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-minimize-reader-load": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-model-the-domain": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-never-block-on-the-human": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-outcome-oriented-execution": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-prove-it-works": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-redesign-from-first-principles": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-separate-before-serializing-shared-state": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-sequence-verifiable-units": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-subtract-before-you-add": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-test-behavior-not-implementation": [
+        "Claude Code",
+        "Pi"
+      ],
+      "principle-type-system-discipline": [
+        "Claude Code",
+        "Pi"
+      ],
+      "pstack-adapter": [
+        "Claude Code",
+        "Pi"
+      ],
+      "recall": [
+        "Claude Code",
+        "Pi"
+      ],
+      "reflect": [
+        "Claude Code",
+        "Pi"
+      ],
+      "reframe": [
+        "Claude Code",
+        "Pi"
+      ],
+      "sharpen": [
+        "Claude Code",
+        "Pi"
+      ],
+      "show-me-your-work": [
+        "Claude Code",
+        "Pi"
+      ],
+      "statechart": [
+        "Claude Code",
+        "Pi"
+      ],
+      "swarm": [
+        "Claude Code",
+        "Pi"
+      ],
+      "tdd": [
+        "Claude Code",
+        "Pi"
+      ],
+      "teach": [
+        "Claude Code",
+        "Pi"
+      ],
+      "technical-writing": [
+        "Claude Code",
+        "Pi"
+      ],
+      "typescript-best-practices": [
+        "Claude Code",
+        "Pi"
+      ],
+      "unslop": [
+        "Claude Code",
+        "Pi"
+      ],
+      "why": [
+        "Claude Code",
+        "Pi"
+      ]
+    },
+    "global": {
+      "agent-workers": [
+        "Claude Code"
+      ]
+    }
+  },
+  "leftover_dirs": [],
+  "agent_report": "The migration is done in both scopes, and `agent-workers.py detect` now runs and reads your existing `workers.toml`. I made one mistake along the way, described below.\n\nI read `MIGRATE.md` through a summarizing fetch, not the raw file, so I worked from that summary.\n\n**Before**\n- **Project scope:** 62 skills from the local checkout `old-bundle`, including `agent-workers`, `pstack-herdr` and `poteto-mode`, plus your unrelated `house-style`.\n- **Global scope:** `herdr-orchestrator`, from the local checkout `old-core`.\n\n**What I changed**\n1. **Checkouts:** I ran `git fetch origin main` in `old-bundle` and `old-core`, then `git checkout --detach origin/main` in each. Both were on detached HEAD and clean, and are now at `4eddb0a`.\n2. **Project scope:** I reinstalled the bundle from `old-bundle` for Claude Code and removed `pstack-herdr`. `pstack-adapter` is now present.\n3. **Global scope:** I installed `agent-workers` from `old-core` and removed `herdr-orchestrator`. It is now the only global skill.\n4. **My mistake:** I installed with a wildcard, which also pulled in two of the repo's own dev skills, `verify-herdr-orchestrator` and `verify-task-lifecycle`. I removed both by name.\n5. **Layout repair:** the reinstall replaced the `.claude/skills/*` symlinks with copies and left `.agents/skills/*` on the old content. I copied the fresh content back into `.agents/skills/` and restored the symlinks from `.claude/skills`. `house-style` is untouched.\n\nI ran every `npx skills` command with `DISABLE_TELEMETRY=1`.\n\n**After**\n- **Project listing:** it shows 62 skills, with `agent-workers`, `pstack-adapter` and `house-style` present. The old names are gone.\n- **`workers.toml`:** `~/.config/herdr-orchestrator/workers.toml` is unchanged and was found by `detect`.\n- **Manual installs:** I found none of the old names as symlinks or copies in `.agents`, `.claude` or `.codex`.\n\n**Leftover**\n- **Old-name text:** `agent-workers/SKILL.md`, `references/setup.md`, `references/workers.example.toml` and `scripts/agent-workers.py` still contain the strings `herdr-orchestrator` or `pstack-herdr`. These come from the upstream release, and I left them alone. They may be the unchanged config path and `horch` naming, but I haven't checked.\n\nStart a fresh agent session so the new skill names load."
+}
