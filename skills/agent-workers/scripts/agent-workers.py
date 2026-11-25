@@ -42,6 +42,7 @@ CONFIG_PROFILE_ENV = "AGENT_WORKERS_PROFILE"
 CONFIG_PATH_ENV = "AGENT_WORKERS_CONFIG"
 TASK_ID_RE = re.compile(r"t-[0-9a-f]{6}")
 MISSING_PANE_CODES = {"pane_not_found", "tab_not_found", "workspace_not_found"}
+PRE_REBRAND_STORAGE_NAMESPACE = "herdr-orchestrator"
 HERDR_CONTEXT_ENV = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_SOCKET_PATH")
 REX_CONTEXT_ENV = ("REX_SESSION", "REX_BLOCK")
 
@@ -186,7 +187,7 @@ def herdr_id(doc, *path, id_key):
 def config_dir():
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base).expanduser() if base else Path.home() / ".config"
-    return root / "herdr-orchestrator"
+    return root / PRE_REBRAND_STORAGE_NAMESPACE
 
 
 def config_path(profile=None, config=None):
@@ -257,7 +258,7 @@ def list_profiles():
 def tasks_root():
     base = os.environ.get("XDG_STATE_HOME")
     root = Path(base).expanduser() if base else Path.home() / ".local" / "state"
-    return root / "herdr-orchestrator" / "tasks"
+    return root / PRE_REBRAND_STORAGE_NAMESPACE / "tasks"
 
 
 def validate_task_id(task_id):
