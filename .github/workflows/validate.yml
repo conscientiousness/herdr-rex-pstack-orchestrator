@@ -53,6 +53,8 @@ jobs:
           python e2e/startup_guards.py --help
           python e2e/result_fallback.py --help
           python e2e/skill_catalogs.py --help
+      - name: Check relative Markdown links
+        run: python scripts/check_links.py
       - name: Parse example configuration
         run: |
           python - <<'PY'
