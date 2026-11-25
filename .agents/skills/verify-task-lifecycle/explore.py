@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from threading import current_thread
+from threading import local
 from types import SimpleNamespace
 
 from scheduler import Schedule
@@ -50,6 +50,8 @@ def cases():
         yield Case(f'{backend}-recheck', ('recheck',), **dict(unsent, native='working'))
         yield Case(f'{backend}-uncertain', ('recheck', 'submit', 'worker-finish'), 2,
                    **dict(unsent, state='not_started', submission='unknown', native='working'))
+        yield Case(f'{backend}-uncertain-nonce', ('nonce-recheck',),
+                   **dict(unsent, state='not_started', submission='unknown', native='working', result='invalid'))
         for outcome in ('sent', 'unknown'):
             yield Case(f'{backend}-resend-{outcome}', ('submit',), backend=backend,
                        state='not_started', submission=outcome, native='idle',
@@ -84,8 +86,10 @@ class World:
         self.result = case.result
         self.clock = 0.0
         self.last = {}
+        self.task_ids = {}
+        self.command = local()
         self.failures = {}
-        self.unsafe_done = None
+        self.fallback_reads = {}
         self.lines = []
         self.locked = False
         self.seed(TASK, case.state, case.submission)
@@ -121,6 +125,7 @@ class World:
                            session='session:' + uuid, label=f'{agent}-{task_id}', harness='pi')
             task.update(workspace_id=binding['session'], pane_id=binding['block'])
         task['backend'] = binding
+        self.task_ids[binding.get('terminal') or binding['block']] = task_id
         initial = dict(w.default_state(), state=state, submission=submission, saw_working=self.case.saw_working)
         if submission != 'not_sent':
             initial['startup_ready'] = True
@@ -173,19 +178,32 @@ class World:
         self.last[task_id] = value.copy()
         state, sub, closed = value['state'], value['submission'], value['closed']
         self.s.record(f'write {task_id} {state}/{sub} closed={closed}')
-        if current_thread().name == 'recheck' and before['submission'] == 'not_sent':
-            if sub == 'sent' or state == 'running':
+        wait = self.command.wait
+        valid_result = task_id == TASK and self.result not in ('missing', 'invalid')
+        if wait is not None:
+            if wait.recheck and before['submission'] == 'not_sent' and (sub == 'sent' or state == 'running'):
                 self.fail('P2', 'recheck promoted not_sent')
+            if before['submission'] == 'unknown' and sub == 'sent' and not valid_result:
+                self.fail('P2', f'wait promoted unknown to sent without a nonce-bound result for {task_id}')
         if (before['closed'] and not closed) or (before['state'] == 'done' and state != 'done'):
             self.fail('P3', 'done or closed reverted')
         if state == 'done' and before['state'] != 'done':
-            native = self.ended and self.native not in ('working', 'blocked', 'error')
-            fallback = (sub == 'sent' and value['saw_working'] and not self.gone
-                        and self.native is None and self.result == 'stable')
-            valid = self.result not in ('missing', 'invalid')
-            if not valid or not {'native': native, 'result_file': fallback}.get(value['settled_by'], False):
-                self.unsafe_done = (f"settled_by={value['settled_by']} with native={self.native}, "
-                                    f'ended={self.ended}, result={self.result}')
+            cause = value['settled_by']
+            if cause == 'result_file':
+                # Keep the settling waiter's observations for checks at close and delivery.
+                reads = self.command.null_reads
+                self.fallback_reads[task_id] = reads
+                eligible = (sub == 'sent' and value['saw_working'] and self.result == 'stable'
+                            and reads.get(task_id, 0) > 0)
+            else:
+                eligible = cause == 'native' and self.ended and self.native not in ('working', 'blocked', 'error')
+            if not valid_result or not eligible:
+                self.fail('P4', f'settled_by={cause} with native={self.native}, ended={self.ended}, result={self.result}')
+
+    def check_confirmation(self, task_id):
+        reads = self.fallback_reads.get(task_id)
+        if reads is not None and reads.get(task_id, 0) < 2:
+            self.fail('P4', f'result_file for {task_id} lacks a second live null-status observation')
 
     def emit(self, line):
         if 'error' in line:
@@ -195,8 +213,13 @@ class World:
         self.lines.append(line)
         self.s.record(f"wait_line {line['task_id']} {line['state']} summary={line['summary']}")
         if line['summary'] is not None:
-            if self.unsafe_done or line['state'] != 'done' or self.native in ('working', 'blocked', 'error'):
-                self.fail('P4', self.unsafe_done or f"delivered while native={self.native}")
+            task_id = line['task_id']
+            if line['state'] != 'done' or self.last[task_id]['state'] != 'done':
+                self.fail('P4', 'delivered without durable done')
+            elif task_id in self.fallback_reads:
+                self.check_confirmation(task_id)
+            elif self.native in ('working', 'blocked', 'error'):
+                self.fail('P4', f'delivered while native={self.native}')
 
     def snapshot(self):
         if self.gone:
@@ -209,10 +232,14 @@ class World:
 
     def get(self, binding):
         self.step()
-        if binding.get('nonce') == OFFLINE:
+        task_id = self.task_ids[binding.get('terminal') or binding['block']]
+        if task_id == OFFLINE:
             self.s.record(f'core.get {OFFLINE} -> endpoint unavailable')
             raise core.CoreError('endpoint unavailable')
         self.s.record(f'{self.case.backend}.get -> {"gone" if self.gone else self.native}')
+        if self.command.wait is not None:
+            reads = self.command.null_reads
+            reads[task_id] = reads.get(task_id, 0) + 1 if not self.gone and self.native is None else 0
         return self.snapshot()
 
     def ready(self, binding, seconds):
@@ -250,7 +277,11 @@ class World:
 
     def close(self, binding):
         self.step()
-        self.s.record(f'{self.case.backend}.close -> gone')
+        task_id = self.task_ids[binding.get('terminal') or binding['block']]
+        self.s.record(f'{self.case.backend}.close {task_id} (native={self.native}) -> gone')
+        if self.command.close_id != task_id and self.last[task_id]['state'] != 'done':
+            self.fail('P6', f'closed {task_id} without durable done or an explicit close for it')
+        self.check_confirmation(task_id)
         self.gone, self.native = True, None
         return {'terminal' if self.case.backend == 'core' else 'block': 'closed'}
 
@@ -285,6 +316,9 @@ class World:
         self.s.record(f'native -> {"gone" if self.gone else self.native}')
 
     def act(self, name):
+        self.command.wait = None
+        self.command.close_id = None
+        self.command.null_reads = {}
         args = SimpleNamespace(task_id=TASK)
         if name.startswith('worker-'):
             self.worker(name)
@@ -299,12 +333,14 @@ class World:
                 if exc.code != 1 or not self.s.trace[-1].endswith(': submission_unsafe'):
                     raise
         elif name == 'close':
+            self.command.close_id = args.task_id
             w.cmd_close(args)
         else:
             batch = name.startswith('batch')
             args = SimpleNamespace(task_ids=[OFFLINE, TASK] if batch else [TASK], recheck='recheck' in name,
                                    config=str(SCRIPTS.parent / 'references/workers.example.toml'),
                                    all=batch, max_seconds=0)
+            self.command.wait = args
             try:
                 w.cmd_wait(args)
             except core.CoreError as exc:
@@ -313,8 +349,10 @@ class World:
                 if not args.recheck:
                     self.fail('P5', f'batch aborted; {TASK} still {self.last[TASK]["state"]}')
                 return
-            if batch and not args.recheck and not any(line['task_id'] == TASK and line['state'] == 'done'
-                                                      and line['summary'] == 'answer' for line in self.lines):
+            if batch and args.recheck:
+                self.fail('P5', f'explicit recheck of {OFFLINE} returned without its endpoint error')
+            elif batch and not any(line['task_id'] == TASK and line['state'] == 'done'
+                                   and line['summary'] == 'answer' for line in self.lines):
                 self.fail('P5', 'healthy summary missing from batch')
 
 
@@ -329,6 +367,8 @@ def explore(case, replay):
             schedule = Schedule()
             world = World(case, schedule)
             path, forks = schedule.run({a: partial(world.act, a) for a in case.actors}, prefix, case.bound)
+            for task_id in world.fallback_reads:
+                world.check_confirmation(task_id)
             if replay is None:
                 stack.extend(forks)
             for prop, trace in world.failures.items():
