@@ -42,6 +42,12 @@ Run `agent-workers roles [<role>]` (`workers.toml`, or pass `--profile <name>` /
 - **Controller-owned:** `why`, `reflect`, `architect` sketches (large/contested -> Arena).
 - **Brief provenance:** Record matched role (or none), worker, and reason in brief (blinded Eval: private record).
 
+## Finish a workflow
+
+1. **Worktrees:** Remove the worktrees you created per `agent-workers` step 6.
+2. **Artifacts:** When the task ends (PR merged or the user confirms it is done), delete `.audit/<task-slug>/`. Keep it only when the work is paused for pickup, the user asks to keep it, or a held worktree still depends on it.
+3. **Report:** List each retained worktree or artifact path with its reason. Leave no other workflow directories in the checkout.
+
 ## Repository and host boundaries
 
 - State exact authorized repos, hosts, worktrees, and sources in every brief. Broad-search wording stays inside that boundary; empty/thin results never authorize global/owner-wide/cross-repo/cross-host searches (record leads without fetching; ask controller).
