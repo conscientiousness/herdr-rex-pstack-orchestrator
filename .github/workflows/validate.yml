@@ -51,6 +51,7 @@ jobs:
           python e2e/config_profiles.py --help
           python e2e/run_wait.py --help
           python e2e/startup_guards.py --help
+          python e2e/result_fallback.py --help
           python e2e/skill_catalogs.py --help
       - name: Parse example configuration
         run: |

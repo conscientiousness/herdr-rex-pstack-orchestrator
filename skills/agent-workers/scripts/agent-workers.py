@@ -70,6 +70,7 @@ SETTLED_STATES = {
 PROBLEM_STATES = SETTLED_STATES - {"done"}
 
 POLL_SECONDS = 2.0
+RESULT_FALLBACK_STABLE_SECONDS = 15.0
 ACK_TIMEOUT_MS = 15000
 START_TIMEOUT_MS = 90000
 WORKER_TAB_LABEL = "Workers"
@@ -79,7 +80,7 @@ PANES_PER_TAB = 4
 WORKER_RULES = """\
 ## Worker rules
 
-- Write your output files first. Write `result.json` last.
+- Write your output files first in the task directory or assigned workspace (not harness artifact directories). Write `result.json` last.
 - Do not ask the user questions. If something is unclear, write `result.json` with status `blocked` and the question, then stop.
 - Do not run `herdr`, `rex`, `agent-workers`, or its `horch` alias.
 - You may use your own subagents unless the assignment restricts delegation. Complete a no-delegation assignment yourself.
@@ -366,6 +367,7 @@ def default_state():
         "startup_ready": False,
         "submission": None,
         "native_status": None,
+        "settled_by": None,
     }
 
 
@@ -403,7 +405,7 @@ def save_state(directory, state):
         merged = dict(current if current["closed"] or current["state"] == "done" else state)
         for key in ("closed", "saw_working", "long_notified"):
             merged[key] = bool(current[key] or state[key])
-        for key in ("settled_at", "first_done_at"):
+        for key in ("settled_at", "first_done_at", "settled_by"):
             merged[key] = current[key] or state.get(key)
         mark_settled(merged)
         write_json(directory / "state.json", merged)
@@ -938,6 +940,7 @@ def require_caller_context(claimed=None, caller_text=None):
     automation can use its actual pane ancestry.
     """
     guidance = ("Confirm the controller's pane from its own process or session, never from UI focus, "
+                "e.g. pass --caller-text '<16+ unique visible chars from your status line>', "
                 "and see caller context in references/setup.md.")
     controllers = [h for h, var in CONTROLLER_SESSION_ENV.items() if os.environ.get(var)]
     expected = controllers or list(HARNESSES)
@@ -1114,7 +1117,8 @@ def _rex_screen_matches(binding, block_id, needle):
 
 def require_rex_context(claimed, caller_text):
     """Prove the caller with its local process tree or conversation screen evidence."""
-    guidance = ("Confirm the controller's full Rex block ID or pass --caller-text <unique visible conversation text>. "
+    guidance = ("Confirm the controller's full Rex block ID or pass "
+                "--caller-text '<16+ unique visible chars from your status line>'. "
                 "Agent-controller tools require --caller-text (optionally with --caller-block <id>).")
     controllers = [h for h, var in CONTROLLER_SESSION_ENV.items() if os.environ.get(var)]
     expected = controllers or HARNESSES
@@ -2046,6 +2050,29 @@ def validate_result(parsed, task):
     return "valid" if question is None else "invalid"
 
 
+def result_stable_for_fallback(directory, task, now_epoch=None):
+    """True when a valid result.json (and any existing declared files) has been untouched long enough."""
+    result_path = directory / "result.json"
+    if not result_path.is_file():
+        return False
+    parsed = read_json(result_path)
+    if validate_result(parsed, task) != "valid":
+        return False
+    try:
+        latest_mtime = result_path.stat().st_mtime
+    except OSError:
+        return False
+    for rel in parsed["files"]:
+        try:
+            target = directory / rel
+            if target.exists():
+                latest_mtime = max(latest_mtime, target.stat().st_mtime)
+        except OSError:
+            continue
+    now = time.time() if now_epoch is None else now_epoch
+    return latest_mtime <= now + 1.0 and (now - latest_mtime) >= RESULT_FALLBACK_STABLE_SECONDS
+
+
 def ran_longer_than(task, minutes):
     try:
         started = datetime.fromisoformat(str(task.get("created_at")).replace("Z", "+00:00"))
@@ -2098,6 +2125,7 @@ def evaluate_task(info, agent, config):
         if verdict == "valid":
             state["state"] = "done"
             state["problem"] = None
+            state["settled_by"] = state.get("settled_by") or "native"
             return "done"
         if verdict == "missing":
             state["state"] = "result_missing"
@@ -2110,6 +2138,12 @@ def evaluate_task(info, agent, config):
         state["state"] = "not_started"
         state["problem"] = "task submitted; execution acknowledgement not observed; inspect and use wait --recheck, never resend"
         return "not_started"
+    if (state["submission"] == "sent" and state["saw_working"]
+            and status is None and result_stable_for_fallback(info["dir"], task)):
+        state["state"] = "done"
+        state["problem"] = None
+        state["settled_by"] = "result_file"
+        return "done"
     if not state["long_notified"] and ran_longer_than(task, config["notify_after_minutes"]):
         state["long_notified"] = True
         state["state"] = "running"
@@ -2206,13 +2240,15 @@ def poll_round(infos, previous, config):
 def wait_line(info):
     state = load_state(info["dir"])
     reported = state["state"] if state["closed"] or state["state"] == "done" else info["reported"]
+    verdict = result_verdict(info["dir"], info["task"])
     # A worker may write its result before its turn ends. Do not deliver it yet.
-    parsed = read_json(info["dir"] / "result.json") if reported == "done" else None
-    parsed = parsed if validate_result(parsed, info["task"]) == "valid" else None
+    parsed = read_json(info["dir"] / "result.json") if reported == "done" and verdict == "valid" else None
     return {
         "task_id": info["task_id"],
         "state": reported,
         "result_status": parsed.get("status") if parsed else None,
+        "result_verdict": verdict,
+        "settled_by": state.get("settled_by"),
         "closed": bool(state["closed"]),
         "message": state["problem"],
         **progress_fields(state),
@@ -2296,8 +2332,13 @@ def wait_until_change(infos, config, max_seconds, wait_all=False):
         if deadline is not None and now >= deadline:
             return
         any_starting = any(info["state"]["state"] == "starting" and not info["state"]["closed"] for info in infos)
+        pending_fallback = any(
+            info["state"]["state"] == "running" and not info["state"]["closed"]
+            and info["state"].get("native_status") is None and info["state"].get("saw_working")
+            for info in infos
+        )
         core_only = all(is_core(info["task"]) for info in infos) and not any_starting
-        interval = 180.0 if core_only else POLL_SECONDS
+        interval = 180.0 if (core_only and not pending_fallback) else POLL_SECONDS
         gap = interval if deadline is None else min(interval, deadline - now)
         if gap > 0:
             observations = [(info["task"]["backend"], info.get("terminal_observation"))
