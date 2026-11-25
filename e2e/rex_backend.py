@@ -91,14 +91,28 @@ def horch(path, *args, env=None, timeout=100):
 
 def controller(root, program):
     """Run inside Rex so the public CLI sees the actual terminal's environment."""
-    observation = {"session": os.environ.get("REX_SESSION"), "block": os.environ.get("REX_BLOCK")}
+    env = os.environ.copy()
+    observation = {"session": env.get("REX_SESSION"), "block": env.get("REX_BLOCK")}
     try:
         observation["detected"] = rows(horch(program, "detect"))[0]["backend"]
         if observation["detected"] != "rex":
             raise RuntimeError(f"Rex controller reported backend {observation['detected']!r}")
+        cli = ["rex", "--autostart=false", "-S", env["REX_SERVER"]]
+        if not observation["session"]:
+            def query(*args):
+                proc = subprocess.run([*cli, *args, "--json"], check=True, capture_output=True,
+                                      text=True, timeout=15)
+                return json.loads(proc.stdout)
+
+            sessions = [row["session_id"] for row in query("session", "ls")["sessions"]]
+            matches = [session for session in sessions if any(
+                row["block_id"] == observation["block"]
+                for row in query("block", "ls", "-s", session)["blocks"])]
+            if len(matches) != 1:
+                raise RuntimeError("Expected exactly one Rex session for the controller block")
+            observation["session"] = env["REX_SESSION"] = matches[0]
         manual_tab = subprocess.run(
-            ["rex", "--autostart=false", "-S", os.environ["REX_SERVER"], "window", "new",
-             "-s", observation["session"], "Workers", "--focus=false", "--json",
+            [*cli, "window", "new", "-s", observation["session"], "Workers", "--focus=false", "--json",
              "--shell=none", "--", "/bin/sleep", "300"],
             check=True, capture_output=True, text=True, timeout=15)
         observation["manual_window"] = json.loads(manual_tab.stdout)["window_id"]
@@ -106,8 +120,8 @@ def controller(root, program):
         for mode, charges in LEDGERS.items():
             brief = root / f"{mode}.md"
             brief.write_text(f"REX_E2E_MODE={mode}\nREX_E2E_CHARGES={json.dumps(charges)}\n")
-            observation["runs"][mode] = rows(horch(program, "run", "fixture", "--brief", str(brief)))[0]
-        mixed = horch(program, "detect", env=dict(os.environ, HERDR_ENV="1"))
+            observation["runs"][mode] = rows(horch(program, "run", "fixture", "--brief", str(brief), env=env))[0]
+        mixed = horch(program, "detect", env=dict(env, HERDR_ENV="1"))
         observation["mixed_context_rejected"] = (mixed.returncode == 1
                                                   and json.loads(mixed.stdout)["error"] == "caller_context_conflict")
     except Exception as exc:
