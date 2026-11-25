@@ -12,7 +12,9 @@ for a coding agent starting with no prior context. Ask it:
 | `pstack-herdr` | `pstack-adapter` |
 
 The worker configuration (`~/.config/herdr-orchestrator/workers.toml`, profiles)
-and the task store keep their paths. Do not move, edit, or delete them.
+and the task store keep their paths. Do not move, edit, or delete them. The
+`herdr-orchestrator` strings left in `agent-workers` name those paths and are
+expected.
 
 ## Steps for the agent
 

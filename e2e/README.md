@@ -542,6 +542,12 @@ python3 e2e/pi_preflight.py --pi ds --pi glm --other gpt \
 
 The driver uses Herdr's supported `PI_CODING_AGENT_DIR` override with an empty directory. It does not uninstall the user's integration. It checks immediate rejection of `run` and a mixed `check`, then completes a non-Pi task under the same missing-integration environment and two Pi tasks with the normal installation. It validates nonce-bound results, cleanup, and unchanged sources/configuration/integration. Use an existing trusted checkout, two free slots, and stop other dispatchers. Only its sanitized receipt should be published; diagnostic outputs stay local.
 
+## Migrate old skill names
+
+`python e2e/migration_loop.py [--model sonnet] [--keep]` checks [MIGRATE.md](../docs/MIGRATE.md) with a cold-start agent. It installs the pre-rename bundle (`pstack-herdr`) and an unrelated skill in a project, and the old `herdr-orchestrator` core skill in an isolated global scope (a temporary `HOME` that links only the Claude Code credentials). A fresh `claude -p` session with `bypassPermissions` is told only to follow the guide on `main`. The checks require both old names removed, the current bundle and core installed with the original agents, the unrelated skill kept, `workers.toml` unchanged, and the installed adapter carrying the current rules. It makes real model calls and writes [migration.json](evidence/migration.json) with the agent's report.
+
+The first pass ([migration.json](evidence/migration.json)) passed all 13 checks with Sonnet in 125 seconds. Because the old installs came from local checkouts, the agent took the guide's local-checkout branch. It briefly installed the repository's dev skills and repaired agent links by hand before verifying. The GitHub-source path that most users follow was not exercised.
+
 ## Evidence and source attribution
 
 - [caller-identity.json](evidence/caller-identity.json): the unfixed horch passed 4/18 caller identity checks; it accepted a stale ID naming a live shell pane and any ID from a detached process. The fixed horch passed 18/18, including a moved pane's alias, and the driver closed its scratch tab and workspace.
