@@ -4,6 +4,7 @@
 import argparse
 from html import unescape
 from html.parser import HTMLParser
+import json
 import os
 from pathlib import Path
 import re
@@ -65,13 +66,13 @@ def without_fences(text):
     return "".join(lines)
 
 
-def targets(text):
+def targets(text, *, check_code_paths):
     text = without_fences(text)
-    # The original poteto-mode break was a file path in an inline code span.
-    for match in CODE_OR_COMMENT.finditer(text):
-        target = (match[2] or "").strip()
-        if CODE_PATH.fullmatch(target):
-            yield text.count("\n", 0, match.start()) + 1, target
+    if check_code_paths:
+        for match in CODE_OR_COMMENT.finditer(text):
+            target = (match[2] or "").strip()
+            if CODE_PATH.fullmatch(target):
+                yield text.count("\n", 0, match.start()) + 1, target
     text = CODE_OR_COMMENT.sub(lambda match: mask(match[0]), text)
     for match in INLINE_LINK.finditer(text):
         target = match["angle"] if match["angle"] is not None else match["bare"]
@@ -100,11 +101,29 @@ def suggestion(destination, source_dir, files):
     return None
 
 
+def upstream_paths(root):
+    references = Path("skills/pstack-herdr/references")
+    try:
+        bundle = json.loads((root / references / "bundle.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return set(), set()
+    skill_dirs = {Path("skills") / skill["name"] for skill in bundle.get("skills", [])}
+    agent_files = {references / "agents" / name for name in bundle.get("agents", {})}
+    return skill_dirs, agent_files
+
+
 def check(root):
     files = tracked_files(root)
+    upstream_skill_dirs, upstream_agent_files = upstream_paths(root)
     failures = []
     for path in tracked_files(root, "*.md"):
-        for line, target in sorted(targets((root / path).read_text(encoding="utf-8"))):
+        # Upstream code examples can assume a different checkout layout.
+        upstream_owned = path in upstream_agent_files or any(
+            parent in upstream_skill_dirs for parent in path.parents
+        )
+        links = targets((root / path).read_text(encoding="utf-8"),
+                        check_code_paths=not upstream_owned)
+        for line, target in sorted(links):
             if target.startswith("/") or SCHEME.match(target):
                 continue
             raw_path = re.split(r"[?#]", target, maxsplit=1)[0]
