@@ -91,7 +91,7 @@ def tracked_files(root, *patterns):
 
 def suggestion(destination, source_dir, files):
     parts = Path(destination).parts
-    for start in range(len(parts)):
+    for start in range(len(parts) - 1):
         suffix = parts[start:]
         candidates = [path for path in files if path.parts[-len(suffix):] == suffix]
         if candidates:
