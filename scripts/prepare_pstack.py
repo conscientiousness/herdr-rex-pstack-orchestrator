@@ -55,7 +55,6 @@ def skill_preamble(name):
 
 def portable_skill(path, preamble):
     frontmatter, body = split_frontmatter(path.read_text(), path)
-    # Retain the original YAML scalar, including folded multiline descriptions.
     match = frontmatter_field(frontmatter, "description")
     if not match:
         raise ValueError(f"Missing description: {path}")

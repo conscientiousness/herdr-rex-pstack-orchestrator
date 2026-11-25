@@ -92,11 +92,6 @@ It must be one JSON object with exactly these keys:
 """
 
 
-# ---------------------------------------------------------------------------
-# output and errors
-# ---------------------------------------------------------------------------
-
-
 def emit(obj):
     print(json.dumps(obj, ensure_ascii=False), flush=True)
 
@@ -112,11 +107,6 @@ def fail(code, message, herdr_payload=None):
 def require_herdr_env():
     if os.environ.get("HERDR_ENV") != "1":
         fail("not_in_herdr", "agent-workers must run inside a herdr pane (HERDR_ENV is not 1)")
-
-
-# ---------------------------------------------------------------------------
-# herdr CLI
-# ---------------------------------------------------------------------------
 
 
 class HerdrError(Exception):
@@ -149,7 +139,6 @@ def _herdr_message(payload, returncode, stderr):
 
 
 def herdr(*args, timeout=120.0, env=None, expect_json=True):
-    """Run a Herdr command, parsing JSON unless its output is requested as text."""
     argv = ["herdr", *[str(a) for a in args]]
     try:
         proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
@@ -173,16 +162,10 @@ def notify(title, body):
     try:
         herdr("notification", "show", title, "--body", body, "--sound", "request", timeout=30.0)
     except HerdrError:
-        pass  # a lost notice must never break task handling
-
-
-# ---------------------------------------------------------------------------
-# herdr response accessors (fixed field paths; herdr ids are opaque strings)
-# ---------------------------------------------------------------------------
+        pass
 
 
 def herdr_path(doc, *path):
-    """Follow a known field path into a herdr response, e.g. result.layout.panes."""
     node = doc
     for key in path:
         if not isinstance(node, dict) or key not in node:
@@ -192,7 +175,6 @@ def herdr_path(doc, *path):
 
 
 def herdr_id(doc, *path, id_key):
-    """Read an id herdr reports either as a plain string or as an object holding id_key."""
     node = herdr_path(doc, *path)
     if isinstance(node, str):
         return node
@@ -201,12 +183,6 @@ def herdr_id(doc, *path, id_key):
     raise HerdrError(f"herdr response has no {'.'.join(path)} ({id_key})")
 
 
-# ---------------------------------------------------------------------------
-# paths and task store
-# ---------------------------------------------------------------------------
-
-
-# Keep this storage namespace for upgrades from the herdr-orchestrator skill.
 def config_dir():
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base).expanduser() if base else Path.home() / ".config"
@@ -231,7 +207,6 @@ def config_path(profile=None, config=None):
 
 
 def resolve_config(args):
-    """Resolve (path, profile) from CLI flags, env vars, or default workers.toml."""
     cli_config = getattr(args, "config", None)
     cli_profile = getattr(args, "profile", None)
     if cli_config is not None and cli_profile is not None:
@@ -256,7 +231,6 @@ def resolve_config(args):
 
 
 def list_profiles():
-    """Return sorted valid profile names from workers.<name>.toml, or None if unreadable."""
     directory = config_dir()
     try:
         entries = list(directory.iterdir())
@@ -302,7 +276,6 @@ def worker_label(worker, harness):
 
 @contextmanager
 def task_store_lock():
-    """Serialize allocation and startup across run/check processes on this store."""
     root = tasks_root()
     root.mkdir(parents=True, exist_ok=True)
     with (root / ".start.lock").open("a") as lock:
@@ -360,7 +333,6 @@ def default_state():
 
 
 def mark_settled(state):
-    """Retain independent first settlement and delivery observations across recheck."""
     observed = iso_now()
     if state["state"] in SETTLED_STATES and not state.get("settled_at"):
         state["settled_at"] = observed
@@ -478,12 +450,10 @@ def all_task_ids():
 
 
 def active_task_count(workspace_id):
-    """Unclosed reservations owned by one workspace, including live legacy panes."""
     return task_capacity(workspace_id)[0]
 
 
 def task_capacity(workspace_id, binding=None):
-    """Count reservations and collect reusable worker tabs in one store scan."""
     active = 0
     legacy_panes = []
     invalid = []
@@ -497,9 +467,9 @@ def task_capacity(workspace_id, binding=None):
         try:
             task = load_task(directory, task_id)
         except TaskMissingError:
-            continue  # manual recovery removed the record after enumeration
+            continue
         except TaskInvalidError:
-            active += 1  # unknown owner and pane; reserve a slot in every workspace
+            active += 1
             invalid.append(task_id)
             continue
         if rex_scope:
@@ -538,11 +508,6 @@ def task_capacity(workspace_id, binding=None):
         panes = {pane_id for pane_id, _ in workspace_panes(workspace_id)}
         active += sum(pane_id in panes for pane_id in legacy_panes)
     return active, invalid, owned_tabs
-
-
-# ---------------------------------------------------------------------------
-# configuration
-# ---------------------------------------------------------------------------
 
 
 def load_config(path=None, *, profile=None):
@@ -642,13 +607,7 @@ def load_config(path=None, *, profile=None):
             "config_path": str(path), "profile": profile}
 
 
-# ---------------------------------------------------------------------------
-# agents, panes, placement
-# ---------------------------------------------------------------------------
-
-
 def agent_index():
-    """Map live agent name to its herdr entry, or None when herdr cannot be polled."""
     try:
         agents = herdr_path(herdr("agent", "list", timeout=30.0), "result", "agents")
     except HerdrError:
@@ -664,7 +623,6 @@ def agent_index():
 
 
 def workspace_panes(workspace):
-    """(pane_id, tab_id) pairs for every pane of a workspace, read from result.panes."""
     panes = herdr_path(herdr("pane", "list", "--workspace", workspace, timeout=30.0), "result", "panes")
     pairs = []
     for pane in panes:
@@ -682,7 +640,6 @@ def herdr_error_code(exc):
 
 
 def close_pane(pane_id, *, socket_path=None):
-    """Close the authoritative pane, independent of the caller's workspace."""
     env = dict(os.environ, HERDR_SOCKET_PATH=socket_path) if socket_path else None
     try:
         pane = herdr_path(herdr("pane", "get", pane_id, timeout=30.0, env=env), "result", "pane")
@@ -697,13 +654,12 @@ def close_pane(pane_id, *, socket_path=None):
         herdr("pane", "close", target, timeout=30.0, env=env)
     except HerdrError as exc:
         if herdr_error_code(exc) in MISSING_PANE_CODES:
-            return "already_gone"  # it vanished after pane get
+            return "already_gone"
         raise
     return "closed"
 
 
 def widest_pane_id(any_pane_id):
-    """Pane with the largest rect area of that tab; first in list order on a tie."""
     panes = herdr_path(herdr("pane", "layout", "--pane", any_pane_id, timeout=30.0), "result", "layout", "panes")
     best_id, best_area = None, -1
     for pane in panes:
@@ -726,7 +682,6 @@ def split_pane(source, direction, cwd):
 
 
 def place_pane(workspace, cwd, caller_tab, owned_tabs):
-    """Place a fresh worker pane in a tab owned by this backend."""
     tabs = herdr_path(herdr("tab", "list", "--workspace", workspace, timeout=30.0), "result", "tabs")
     panes = workspace_panes(workspace)
     for tab in tabs:
@@ -759,12 +714,7 @@ def label_worker_pane(pane_id, worker, harness):
     try:
         herdr("pane", "rename", pane_id, worker_label(worker, harness), timeout=5.0)
     except HerdrError:
-        pass  # display labels do not affect worker execution
-
-
-# ---------------------------------------------------------------------------
-# launch arguments and brief
-# ---------------------------------------------------------------------------
+        pass
 
 
 def launch_args(worker, directory):
@@ -798,11 +748,6 @@ def write_brief(directory, controller_brief, task_id, nonce):
     (directory / "brief.md").write_text(text, encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# run
-# ---------------------------------------------------------------------------
-
-
 def resolve_cwd(raw):
     try:
         cwd = Path(raw or os.getcwd()).resolve(strict=True)
@@ -814,7 +759,6 @@ def resolve_cwd(raw):
 
 
 def process_ancestors(stop_at=None):
-    """Return pids up to the terminal child, when present, or init."""
     try:
         listing = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True,
                                  text=True, timeout=10, check=True).stdout
@@ -840,13 +784,12 @@ def pane_process_info(pane_id, *, env=None):
 
 
 def pane_owning_process(ancestors):
-    """Return the pane whose shell is an ancestor of this process, if any."""
     for pane in herdr_path(herdr("pane", "list", timeout=30.0), "result", "panes"):
         try:
             if pane_process_info(pane["pane_id"]).get("shell_pid") in ancestors:
                 return pane["pane_id"]
         except HerdrError:
-            continue  # a pane closed during the scan cannot own this process
+            continue
     return None
 
 
@@ -926,7 +869,6 @@ def require_caller_context(claimed=None, caller_text=None):
     expected_names = expected_process_names(expected)
     cwd = Path.cwd().resolve()
 
-    # Auto-resolve controller pane from --caller-text when --caller-pane is omitted.
     if claimed is None and caller_text is not None:
         if len(caller_text.strip()) < 16:
             fail("caller_context_invalid",
@@ -1049,7 +991,6 @@ def has_herdr_context():
 
 
 def controller_family(args):
-    """Select a controller candidate. Dispatch verifies the live location separately."""
     if getattr(args, "caller_block", None) is not None:
         return "rex"
     if getattr(args, "caller_pane", None) is not None:
@@ -1065,7 +1006,6 @@ def controller_family(args):
 
 
 def core_caller_context(claimed=None, caller_text=None):
-    """Require a viewer for Herdr callers, even when HERDR_ENV was dropped."""
     if claimed is None and caller_text is None and not has_herdr_context():
         return None
     caller = require_caller_context(claimed, caller_text)
@@ -1084,7 +1024,6 @@ def rex_foreground_harness(process, expected):
 
 
 def _rex_screen_matches(binding, block_id, needle):
-    """Match caller text against visible screen, falling back to soft-unwrapped lines."""
     screen = rex.capture(binding, block_id, visible=True)
     if needle in " ".join(screen.split()):
         return True, screen
@@ -1095,7 +1034,6 @@ def _rex_screen_matches(binding, block_id, needle):
 
 
 def require_rex_context(claimed, caller_text):
-    """Prove the caller with its local process tree or conversation screen evidence."""
     guidance = ("Confirm the controller's full Rex block ID or pass "
                 "--caller-text '<16+ unique visible chars from your status line>'. "
                 "Agent-controller tools require --caller-text (optionally with --caller-block <id>).")
@@ -1103,7 +1041,6 @@ def require_rex_context(claimed, caller_text):
     expected = controllers or HARNESSES
     cwd = Path.cwd().resolve()
 
-    # Auto-resolve controller block from --caller-text when --caller-block is omitted.
     if claimed is None and caller_text is not None:
         if len(caller_text.strip()) < 16:
             fail("caller_context_invalid",
@@ -1258,8 +1195,6 @@ def cmd_run(args):
 
 def start_task(config, worker_name, brief_text, cwd, *, skip_if_full=False,
                caller_pane=None, caller_text=None, binding=None, caller=None):
-    # Hold task_store_lock() only during capacity check, reservation, and placement;
-    # release it before waiting on harness readiness, viewer verification, and prompt ack.
     if binding is not None and binding["kind"] == "rex":
         return start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller)
     if binding is not None:
@@ -1368,7 +1303,6 @@ def viewer_fields(task):
 
 
 def persist_viewer_verification(directory, task):
-    """Merge viewer verification fields into task.json under the per-task lock."""
     with task_state_lock(directory):
         stored = load_task(directory, task["task_id"])
         for key in ("viewer_verified", "viewer_verification_error", "viewer_verification", "viewer_warning"):
@@ -1381,7 +1315,6 @@ def persist_viewer_verification(directory, task):
 
 
 def abort_starting_state(directory, state, reason):
-    """Avoid stranding a task in state='starting' if phase 2 is interrupted."""
     if state["state"] == "starting" and not state["closed"]:
         state["state"] = "start_failed"
         state["problem"] = reason
@@ -1399,7 +1332,6 @@ def cmd_verify_viewer(args):
 
 
 def prepare_send(directory, task, read_screen, blocked_error):
-    """Check visible startup blockers before recording a send attempt."""
     harness = task.get("harness")
     spec = HARNESSES.get(harness) if isinstance(harness, str) else None
     if spec and spec.screen_blocker:
@@ -1653,7 +1585,6 @@ def start_rex_task(config, worker_name, brief_text, cwd, skip_if_full, caller):
         except rex.RexError as exc:
             state.update(state="start_failed", problem=str(exc), closed=exc.kind == "worker_absent")
             save_state(directory, state)
-    # Lock released: wait for harness readiness and submit prompt concurrently.
     if state["state"] == "starting" and not state["closed"]:
         try:
             submit_rex_task(directory, task, state)
@@ -1744,7 +1675,6 @@ def start_core_task(config, worker_name, brief_text, cwd, skip_if_full, caller_p
             state["state"] = "start_failed"
             state["problem"] = str(exc)
             save_state(directory, state)
-    # Lock released: verify viewer and wait for harness readiness/submission concurrently.
     if state["state"] == "starting" and not state["closed"]:
         try:
             if caller:
@@ -1783,7 +1713,6 @@ def wait_for_legacy_session(agent, harness, deadline):
 
 
 def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller_pane, caller_text, caller=None):
-    """Start one legacy Herdr worker on one task and return the run object; fail() on contract errors."""
     worker = config["workers"].get(worker_name)
     if worker is None:
         fail("unknown_worker", f"no worker named {worker_name!r} in {config.get('config_path') or config_path()}")
@@ -1888,7 +1817,6 @@ def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller
             "task_dir": task["task_dir"],
         }
 
-    # Lock released: start harness, wait for readiness, and submit prompt concurrently.
     state = load_state(directory)
     if state["closed"] or state["state"] == "done":
         return run_object(state["state"])
@@ -1989,11 +1917,6 @@ def start_legacy_task(config, worker_name, brief_text, cwd, skip_if_full, caller
         raise
 
 
-# ---------------------------------------------------------------------------
-# wait
-# ---------------------------------------------------------------------------
-
-
 def turn_ended(agent, state):
     status = agent.get("agent_status")
     if status not in ("idle", "done"):
@@ -2035,7 +1958,6 @@ def validate_result(parsed, task):
 
 
 def result_stable_for_fallback(directory, task, now_epoch=None):
-    """True when a valid result.json (and any existing declared files) has been untouched long enough."""
     result_path = directory / "result.json"
     if not result_path.is_file():
         return False
@@ -2069,7 +1991,6 @@ def confirm_result_fallback(info, agent):
     state, task = info["state"], info["task"]
     if agent is None or agent.get("agent_status") is not None or not state["saw_working"]:
         return False
-    # A valid result can also resolve an uncertain submission during evaluation.
     if state["submission"] != "sent" and not (
             state["submission"] == "unknown"
             and (state["baseline_seq"] is not None or state["baseline_status_at"] is not None)):
@@ -2200,7 +2121,6 @@ def poll_round(infos, previous, config):
         task = info["task"]
         agent = (observations.get(info["task_id"]) if is_core(task) or is_rex(task)
                  else index.get(task["agent"]))
-        # Confirm just before the transaction. Backend calls must stay outside the lock.
         fallback_confirmed = info["task_id"] in observing and confirm_result_fallback(info, agent)
         with task_state_lock(directory):
             state = load_state(directory)
@@ -2208,7 +2128,6 @@ def poll_round(infos, previous, config):
                 info["task"] = load_task(directory, info["task_id"])
             info["state"] = state
             old_state = state["state"]
-            # A submitter can reserve the task after we sampled its backend.
             if info["task_id"] not in observing or state["closed"] or old_state in ("done", "starting") or (
                     old_state in SETTLED_STATES and not info.pop("recheck", False)):
                 reported = old_state
@@ -2237,8 +2156,6 @@ def poll_round(infos, previous, config):
                     state["problem"] = cleanup_error
                     write_json(directory / "state.json", state)
                 info["state"] = state
-        # Notices are claimed in the state transaction, sent outside the lock.
-        # Suppress a notice if a concurrent close has already completed.
         if (notice and not is_rex(info["task"]) and not load_state(directory)["closed"]
                 and (not is_core(info["task"]) or info["task"].get("viewer"))):
             notify(f"agent-workers: {info['task_id']}", notice)
@@ -2256,7 +2173,6 @@ def wait_line(info):
     state = load_state(info["dir"])
     reported = state["state"] if state["closed"] or state["state"] in ("done", "starting") else info["reported"]
     verdict = result_verdict(info["dir"], info["task"])
-    # A worker may write its result before its turn ends. Do not deliver it yet.
     parsed = read_json(info["dir"] / "result.json") if reported == "done" and verdict == "valid" else None
     return {
         "task_id": info["task_id"],
@@ -2324,7 +2240,6 @@ def cmd_wait(args):
 
 
 def wait_until_change(infos, config, max_seconds, wait_all=False):
-    """Poll until a waited task changes state (or all settle with wait_all) or max_seconds pass."""
     if all((info["state"]["closed"] or info["state"]["state"] in SETTLED_STATES)
            and not info.get("recheck") for info in infos):
         return
@@ -2365,11 +2280,6 @@ def wait_until_change(infos, config, max_seconds, wait_all=False):
                 core.wait_changes(observations, gap)
             else:
                 time.sleep(gap)
-
-
-# ---------------------------------------------------------------------------
-# read-only worker statistics
-# ---------------------------------------------------------------------------
 
 
 def stats_timestamp(value):
@@ -2442,8 +2352,6 @@ def cmd_stats(args):
         worker_row(name)
     for task_id in all_task_ids():
         directory = task_dir(task_id)
-        # Missing files are normal during publication/removal; existing corrupt
-        # files remain diagnostic. Raw metadata is used only to narrow scope.
         if not (directory / "task.json").exists():
             continue
         raw = read_json(directory / "task.json")
@@ -2552,11 +2460,6 @@ def cmd_stats(args):
                                         "thresholds": [above(n) for n in (15, 30, 45, 60, 90)
                                                        if n != config["notify_after_minutes"]]},
     })
-
-
-# ---------------------------------------------------------------------------
-# roles
-# ---------------------------------------------------------------------------
 
 
 def _worker_role_summary(name, workers):
@@ -2679,11 +2582,6 @@ def cmd_roles(args):
     })
 
 
-# ---------------------------------------------------------------------------
-# list and close
-# ---------------------------------------------------------------------------
-
-
 def cmd_list(args):
     if args.limit is not None and args.limit <= 0:
         fail("invalid_arguments", "--limit must be a positive integer")
@@ -2762,11 +2660,6 @@ def cmd_close(args):
     emit({"task_id": args.task_id, "closed": True, **outcome})
 
 
-# ---------------------------------------------------------------------------
-# detect and check
-# ---------------------------------------------------------------------------
-
-
 CHECK_BRIEF = """\
 # Agent Workers setup check
 
@@ -2808,7 +2701,6 @@ def pi_providers():
 
 
 def legacy_integration_status(harness):
-    """Read Herdr's local plaintext protocol without exposing paths or diagnostics."""
     try:
         proc = subprocess.run(["herdr", "integration", "status"],
                               capture_output=True, text=True, timeout=10)
@@ -2839,7 +2731,6 @@ def require_legacy_integrations(harnesses):
 
 
 def herdr_server_version():
-    """Read the running server version independently of the installed CLI."""
     try:
         proc = subprocess.run(["herdr", "status", "server", "--json"],
                               capture_output=True, text=True, timeout=10)
@@ -2905,7 +2796,7 @@ def cmd_check(args):
             if run is None:
                 _, invalid, _ = task_capacity(caller["workspace_id"] if caller else None, binding)
                 capacity_invalid.update(invalid)
-                break  # poll our started tasks before retrying pending workers
+                break
             pending.pop(0)
             info = make_info(run["task_id"])
             started[name] = (info, began)
@@ -2914,7 +2805,7 @@ def cmd_check(args):
         waiting = [info for info, _ in started.values()
                    if not info["state"]["closed"] and info["state"]["state"] not in SETTLED_STATES]
         if time.monotonic() >= deadline or (not waiting and pending):
-            break  # out of time, or problem panes hold every slot
+            break
         wait_until_change(waiting, config, deadline - time.monotonic())
         for name, (info, _) in started.items():
             if name not in settled_times and (info["state"]["closed"] or info["state"]["state"] in SETTLED_STATES):
@@ -2953,11 +2844,6 @@ def cmd_check(args):
             "seconds": round(settled_times.get(name, time.monotonic()) - began),
             "message": message,
         })
-
-
-# ---------------------------------------------------------------------------
-# entry point
-# ---------------------------------------------------------------------------
 
 
 def add_caller_arguments(parser):
@@ -3064,7 +2950,7 @@ def main(argv=None):
         fail("rex_error", str(exc))
     except KeyboardInterrupt:
         sys.exit(130)
-    except Exception as exc:  # never crash with a traceback at the controller
+    except Exception as exc:
         fail("internal_error", f"{type(exc).__name__}: {exc}")
 
 

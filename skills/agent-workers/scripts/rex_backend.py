@@ -1,5 +1,3 @@
-"""Rex CLI transport and worker placement for Agent Workers."""
-
 from __future__ import annotations
 
 import json
@@ -152,7 +150,7 @@ def blocks(binding, all_sessions=False):
         except RexError as exc:
             if exc.kind != "target_not_found" or binding["session"] in _sessions(binding):
                 raise
-            records = []  # the pinned server independently confirms the session is gone
+            records = []
     _check_server(binding)
     return records
 
