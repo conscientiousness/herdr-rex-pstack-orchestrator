@@ -127,3 +127,4 @@ e2e/evidence/*
 !e2e/config_profiles.py
 !e2e/run_wait.py
 !e2e/startup_guards.py
+!e2e/result_fallback.py
