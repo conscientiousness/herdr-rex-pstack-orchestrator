@@ -2192,7 +2192,8 @@ def poll_round(infos, previous, config):
                 info["task"] = load_task(directory, info["task_id"])
             info["state"] = state
             old_state = state["state"]
-            if info["task_id"] not in observing or state["closed"] or old_state == "done" or (
+            # A submitter can reserve the task after we sampled its backend.
+            if info["task_id"] not in observing or state["closed"] or old_state in ("done", "starting") or (
                     old_state in SETTLED_STATES and not info.pop("recheck", False)):
                 reported = old_state
             else:
@@ -2239,7 +2240,7 @@ def poll_round(infos, previous, config):
 
 def wait_line(info):
     state = load_state(info["dir"])
-    reported = state["state"] if state["closed"] or state["state"] == "done" else info["reported"]
+    reported = state["state"] if state["closed"] or state["state"] in ("done", "starting") else info["reported"]
     verdict = result_verdict(info["dir"], info["task"])
     # A worker may write its result before its turn ends. Do not deliver it yet.
     parsed = read_json(info["dir"] / "result.json") if reported == "done" and verdict == "valid" else None
