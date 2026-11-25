@@ -70,7 +70,8 @@ WORKER_RULES = """\
 ## Worker rules
 
 - Write your output files first in the task directory or assigned workspace (not harness artifact directories). Write `result.json` last.
-- Do not ask the user questions. If something is unclear, write `result.json` with status `blocked` and the question, then stop.
+- Resolve routine, reversible choices from the assignment and repository conventions. Record material assumptions in your report.
+- If required input or authorization is missing, finish independent work and return `result.json` with status `blocked` and the specific question for the controller. Do not open an interactive question for the user.
 - Do not run `herdr`, `rex`, `agent-workers`, or its `horch` alias.
 - You may use your own subagents unless the assignment restricts delegation. Complete a no-delegation assignment yourself.
 

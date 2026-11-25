@@ -13,7 +13,7 @@ For review-only requests, start at step 2 with the captured target and finish wi
    - Give each adversary its own writable git worktree with in-scope uncommitted and relevant untracked changes copied in.
    - Give every adversary the same scope, intent, and brief. Allow scoped repros/tests only in its own worktree; forbid product fixes, delivery-branch edits, and unauthorized external writes (do not mark whole assignment read-only).
    - Launch all tasks with separate `agent-workers run` calls before waiting (respecting `max_active_workers`).
-3. **Wait and verify:** Wait (`agent-workers wait <ids...> --all`) until every adversary is `state: "done"` (early files do not finish a running task; never close an unfinished reviewer). Require `result_status: "completed"` (`blocked`/`failed` leaves that seat unresolved).
+3. **Wait and verify:** Wait (`agent-workers wait <ids...> --all`) for `state: "done"` and `result_status: "completed"` from every seat. Use [agent-workers recovery](../../../agent-workers/SKILL.md#problems) for problems. Count a recovered seat only after its replacement delivers and passes verification.
    - Rerun each finding's exact command against the captured target in an isolated worktree.
    - Keep only reproduced failures breaking stated intent, merge duplicate root causes, and report dropped counts/reasons. Skip Arena Phases C, D, and E as Interrogate directs.
 4. **Fix and re-review (authorized changes only):** After the prior writer stops, start a fresh implementer on the same branch with original goal, accepted findings, prior reports, and current revision. Verify behavior, then run a fresh reviewer panel on the new revision (never reuse a session).
@@ -23,7 +23,7 @@ Writers never share a worktree concurrently; Interrogate adversaries each need w
 
 ## Arena runners and cross-judge
 
-- **`arena runners`** (panel): launch one fresh task per configured entry (including repeated names) in separate worktrees; do not silently drop seats or use unconfigured upstream fallbacks (if a seat hits usage/quota exhaustion, close it and replace it with another configured worker without stopping, disclosing the switch).
+- **`arena runners`** (panel): launch one fresh task per configured entry (including repeated names) in separate worktrees. Apply [agent-workers recovery](../../../agent-workers/SKILL.md#problems) to a problem seat, preserve its scope, disclose any replacement, and keep unresolved seats visible.
 - **`arena cross-judge pool`** (single pick after candidates finish): select **one** configured worker from the pool (overrides upstream's different-vendor restriction).
   - Prefer a different model or vendor when available in the pool, but same-vendor judges are allowed (e.g., another model from the same vendor); never skip judging solely because pool workers share a vendor with the controller or implementer.
   - If none in the pool can run, skip judging and disclose as Arena permits (never substitute unconfigured models or edit `workers.toml`).

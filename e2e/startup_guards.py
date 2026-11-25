@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify agy startup banner guard ('esc to dismiss') and Rex --caller-text soft-unwrap."""
+"""Verify agy startup banner recovery and Rex --caller-text soft-unwrap."""
 
 import argparse
 import hashlib
@@ -198,7 +198,7 @@ def main():
 
     banner_gate = work_dir / "dismiss-banner.release"
     (cfg_dir / "workers.toml").write_text(
-        'max_active_workers = 4\n'
+        'max_active_workers = 1\n'
         'notify_after_minutes = 180\n\n'
         '[workers.agy-banner]\n'
         'harness = "agy"\n'
@@ -262,17 +262,47 @@ def main():
               and wait_res["state"] == "done"
               and wait_res["closed"] is True)
 
-        # 1C. Clean agy without banner succeeds immediately with run --wait
+        # 1C. Replace a blocked worker without dismissing its banner.
+        banner_gate.unlink()
+        p_blocked = run_cli(
+            args.horch,
+            ["run", "agy-banner", "--brief", str(brief), "--cwd", str(work_dir)],
+            env=core_env,
+        )
+        blocked = json.loads(p_blocked.stdout)
+        clean_args = ["run", "agy-clean", "--brief", str(brief), "--cwd", str(work_dir), "--wait"]
+        p_limit = run_cli(args.horch, clean_args, env=core_env)
+        check("agy_undismissed_banner_reserves_the_only_slot",
+              p_blocked.returncode == 0
+              and blocked["state"] == "start_failed"
+              and blocked["submission"] == "not_sent"
+              and "esc to dismiss" in (blocked.get("message") or "").lower()
+              and p_limit.returncode != 0
+              and json.loads(p_limit.stdout).get("error") == "worker_limit")
+        p_close = run_cli(args.horch, ["close", blocked["task_id"]], env=core_env)
+        closed = json.loads(p_close.stdout)
+        check("agy_undismissed_banner_closed_without_input",
+              p_close.returncode == 0
+              and closed["task_id"] == blocked["task_id"]
+              and closed["closed"] is True
+              and not banner_gate.exists()
+              and not (work_dir / "received_while_banner_open").exists()
+              and not (Path(blocked["task_dir"]) / "result.json").exists())
+
         p_clean = run_cli(
             args.horch,
-            ["run", "agy-clean", "--brief", str(brief), "--cwd", str(work_dir), "--wait"],
+            clean_args,
             env=core_env,
         )
         clean_lines = [json.loads(line) for line in p_clean.stdout.splitlines() if line.strip()]
-        check("agy_clean_run_wait_succeeds",
+        check("agy_replacement_delivers_and_closes",
               p_clean.returncode == 0
               and len(clean_lines) == 2
+              and clean_lines[0]["task_id"] != blocked["task_id"]
+              and clean_lines[0]["task_id"] == clean_lines[1]["task_id"]
               and clean_lines[1]["state"] == "done"
+              and clean_lines[1]["result_status"] == "completed"
+              and clean_lines[1]["result_verdict"] == "valid"
               and clean_lines[1]["closed"] is True)
 
         # 1D. Non-agy harness (pi) showing 'esc to dismiss' is NOT falsely blocked
