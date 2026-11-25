@@ -10,6 +10,20 @@ permissions:
   contents: read
 
 jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Explore task lifecycle schedules
+        run: timeout 120s python .agents/skills/verify-task-lifecycle/explore.py
+
   package:
     runs-on: ubuntu-latest
     strategy:
