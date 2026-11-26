@@ -304,6 +304,14 @@ def get(binding):
     return {"state": "live", "status": None, "updated_at": None, "owner": None}
 
 
+def _idle_same_owner(terminal, baseline):
+    return (terminal is not None
+            and terminal.get("state") == "live"
+            and terminal.get("status") == "idle"
+            and baseline.get("owner") is not None
+            and terminal.get("owner") == baseline.get("owner"))
+
+
 def send(binding, text, baseline):
     try:
         if baseline.get("status") != "idle" or get(binding) != baseline:
@@ -314,7 +322,7 @@ def send(binding, text, baseline):
     # A harness can buffer a queued paste and absorb an immediate Enter.
     if delay := HARNESSES[binding["harness"]].rex_paste_delay:
         time.sleep(delay)
-    if get(binding) != baseline:
+    if not _idle_same_owner(get(binding), baseline):
         raise RexError("Rex worker changed after prompt paste; Enter was withheld", "worker_changed")
     _cli(binding, "send-key", "-s", binding["session"], "-b", binding["block"], "enter",
          operation="submit prompt", expect_json=False)

@@ -71,6 +71,148 @@ while True:
         temporary.replace(result)
 '''
 
+CODEX_FIXTURE = r'''import json, os, pathlib, re, select, sys, time, tty
+if "--version" in sys.argv:
+    print("codex rex-e2e-fixture 1")
+    sys.exit(0)
+
+task_dir = None
+for i, arg in enumerate(sys.argv):
+    if arg == "--add-dir" and i + 1 < len(sys.argv):
+        task_dir = pathlib.Path(sys.argv[i + 1])
+
+startup_jitter = "--startup-jitter" in sys.argv
+pre_paste_jitter = "--pre-paste-jitter" in sys.argv
+post_paste_idle = "--post-paste-idle" in sys.argv
+post_paste_block = "--post-paste-block" in sys.argv
+
+def report(state):
+    os.write(1, ("\x1b]7501;state=" + state + ":app=codex\x07").encode())
+
+events = {
+    "received_during_jitter": False,
+    "pre_paste_fired": False,
+    "saw_retry_starting": False,
+    "received_during_pre_paste_working": False,
+    "post_paste_idle_sent": False,
+    "post_paste_block_sent": False,
+    "enter_received": False,
+    "duplicate": False,
+}
+
+def save_events():
+    if task_dir is None:
+        return
+    path = task_dir / "events.json"
+    tmp = path.with_suffix(".new")
+    tmp.write_text(json.dumps(events))
+    tmp.replace(path)
+
+def read_state():
+    if task_dir is None:
+        return None
+    try:
+        return json.loads((task_dir / "state.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+tty.setraw(0)
+os.write(1, b"\x1b[?2004hCODEX_E2E_READY\r\n")
+report("idle")
+
+buffer = b""
+handled = False
+
+if startup_jitter:
+    started = time.monotonic()
+    switched_working = False
+    while time.monotonic() - started < 0.30:
+        if not switched_working and time.monotonic() - started >= 0.12:
+            report("working")
+            switched_working = True
+        if select.select([0], [], [], 0.01)[0]:
+            chunk = os.read(0, 4096)
+            if not chunk:
+                sys.exit(0)
+            events["received_during_jitter"] = True
+            buffer += chunk
+    report("idle")
+    save_events()
+
+pre_paste_working_until = None
+while True:
+    if pre_paste_jitter:
+        st = read_state()
+        if not events["pre_paste_fired"] and st and st.get("submission") == "unknown":
+            report("working")
+            events["pre_paste_fired"] = True
+            pre_paste_working_until = time.monotonic() + 0.25
+            save_events()
+        elif events["pre_paste_fired"] and st and st.get("state") == "starting" and st.get("submission") == "not_sent":
+            if not events["saw_retry_starting"]:
+                events["saw_retry_starting"] = True
+                save_events()
+        if pre_paste_working_until is not None and time.monotonic() >= pre_paste_working_until:
+            report("idle")
+            pre_paste_working_until = None
+            save_events()
+
+    if not select.select([0], [], [], 0.005)[0]:
+        continue
+    data = os.read(0, 4096)
+    if not data:
+        break
+    if pre_paste_working_until is not None:
+        events["received_during_pre_paste_working"] = True
+        save_events()
+    combined = buffer + data
+    lines = re.split(rb"[\r\n]", combined)
+    buffer = lines.pop()
+
+    if not lines and b"brief.md" in buffer:
+        if post_paste_idle and not events["post_paste_idle_sent"]:
+            report("idle")
+            events["post_paste_idle_sent"] = True
+            save_events()
+        if post_paste_block and not events["post_paste_block_sent"]:
+            report("blocked")
+            events["post_paste_block_sent"] = True
+            save_events()
+
+    for line in lines:
+        if not line and not handled:
+            continue
+        events["enter_received"] = True
+        save_events()
+        match = re.search(rb"Read (/[^\x1b]+?/brief\.md) in full", line)
+        if not match:
+            continue
+        if handled:
+            events["duplicate"] = True
+            save_events()
+            continue
+        handled = True
+        brief = pathlib.Path(os.fsdecode(match.group(1)))
+        text = brief.read_text()
+        task_id = re.search(r'"task_id"\s*:\s*"([^"]+)"', text).group(1)
+        nonce = re.search(r'"nonce"\s*:\s*"([^"]+)"', text).group(1)
+        report("working")
+        result = brief.with_name("result.json")
+        tmp = result.with_suffix(".new")
+        tmp.write_text(json.dumps({
+            "task_id": task_id,
+            "nonce": nonce,
+            "status": "completed",
+            "summary": "Codex jitter ok.",
+            "files": [],
+            "question": None,
+        }))
+        tmp.replace(result)
+        time.sleep(0.1)
+        report("done")
+        save_events()
+'''
+
 
 def write_json(path, data):
     temporary = path.with_suffix(".new")
@@ -127,6 +269,28 @@ def controller(root, program):
     except Exception as exc:
         observation["error"] = str(exc)
     write_json(root / "controller.json", observation)
+    while not (root / "codex.start").exists() and not (root / "controller.release").exists():
+        time.sleep(0.05)
+    if (root / "codex.start").exists():
+        codex_obs = {"runs": {}}
+        try:
+            codex_brief = root / "codex.md"
+            codex_brief.write_text("# Codex jitter probe\nWrite result.json.\n")
+            for worker in ("codex-settle", "codex-retry", "codex-block"):
+                codex_obs["runs"][worker] = rows(horch(program, "run", worker, "--brief", str(codex_brief), env=env))[0]
+                if worker != "codex-block":
+                    task_id = codex_obs["runs"][worker]["task_id"]
+                    codex_obs["runs"][worker]["waited"] = rows(
+                        horch(program, "wait", task_id, "--max-seconds", "15", env=env)
+                    )[0]
+                else:
+                    task_id = codex_obs["runs"][worker]["task_id"]
+                    codex_obs["runs"][worker]["closed_result"] = rows(
+                        horch(program, "close", task_id, env=env)
+                    )[0]
+        except Exception as exc:
+            codex_obs["error"] = str(exc)
+        write_json(root / "codex.json", codex_obs)
     while not (root / "controller.release").exists():
         time.sleep(0.1)
 
@@ -152,18 +316,30 @@ class Scenario:
         fixture = bindir / "pi"
         fixture.write_text("#!/usr/bin/env fixture-node\n" + FIXTURE)
         fixture.chmod(0o700)
+        codex_fixture = bindir / "codex"
+        codex_fixture.write_text("#!/usr/bin/env fixture-node\n" + CODEX_FIXTURE)
+        codex_fixture.chmod(0o700)
         for name in ("herdr", "herdr-core", "hc"):
             guard = bindir / name
             guard.write_text('#!/bin/sh\ntouch "$(dirname "$0")/../herdr-invoked"\nexit 97\n')
             guard.chmod(0o700)
         config = root / "config/herdr-orchestrator/workers.toml"
         config.parent.mkdir(parents=True)
-        config.write_text('max_active_workers = 2\n[workers.fixture]\nharness = "pi"\nmodel = "fixture"\n')
+        config.write_text(
+            'max_active_workers = 2\n'
+            '[workers.fixture]\nharness = "pi"\nmodel = "fixture"\n'
+            '[workers.codex-settle]\nharness = "codex"\nmodel = "fixture"\n'
+            'args = ["--startup-jitter", "--post-paste-idle"]\n'
+            '[workers.codex-retry]\nharness = "codex"\nmodel = "fixture"\n'
+            'args = ["--pre-paste-jitter"]\n'
+            '[workers.codex-block]\nharness = "codex"\nmodel = "fixture"\n'
+            'args = ["--post-paste-block"]\n'
+        )
         self.init = root / "init.lua"
         self.init.touch()
         self.checks = {}
         self.evidence = {"schema": "horch/rex-backend-e2e/v1", "verdict": "fail", "checks": self.checks,
-                         "scope": "real Rex; two deterministic interactive Pi workers; no model calls",
+                         "scope": "real Rex; deterministic interactive Pi and Codex jitter workers; no model calls",
                          "deliveries": {},
                          "rerun": shlex.join([sys.executable, str(Path(__file__).resolve()),
                                                "--horch", str(args.horch), "--output", str(args.output)])}
@@ -261,6 +437,46 @@ class Scenario:
                 row["block_id"] for row in self.blocks(session)} == worker_blocks | manual_blocks | {controller_block})
         self.check("last block closure removes only the worker tab", {
             row["window_id"] for row in self.windows(session)["windows"]} == {controller_window, manual_window})
+
+        (self.root / "codex.start").touch()
+        codex_obs = self.until_file(self.root / "codex.json", 120)
+        if codex_obs.get("error"):
+            raise RuntimeError(codex_obs["error"])
+        codex_runs = codex_obs["runs"]
+        settle_run = codex_runs["codex-settle"]
+        settle_events = json.loads((Path(settle_run["task_dir"]) / "events.json").read_text())
+        self.check("codex startup jitter settles and post-paste idle refresh still sends Enter",
+                   settle_run["submission"] == "sent" and settle_run["startup_ready"]
+                   and settle_run["waited"]["state"] == "done" and settle_run["waited"]["closed"]
+                   and settle_run["waited"]["summary"] == "Codex jitter ok."
+                   and not settle_events["received_during_jitter"]
+                   and settle_events["post_paste_idle_sent"]
+                   and settle_events["enter_received"]
+                   and not settle_events["duplicate"])
+        retry_run = codex_runs["codex-retry"]
+        retry_events = json.loads((Path(retry_run["task_dir"]) / "events.json").read_text())
+        self.check("codex pre-paste transient not_sent retries automatically without manual submit",
+                   retry_run["submission"] == "sent" and retry_run["startup_ready"]
+                   and retry_run["waited"]["state"] == "done" and retry_run["waited"]["closed"]
+                   and retry_run["waited"]["summary"] == "Codex jitter ok."
+                   and retry_events["pre_paste_fired"]
+                   and retry_events["saw_retry_starting"]
+                   and not retry_events["received_during_pre_paste_working"]
+                   and retry_events["enter_received"]
+                   and not retry_events["duplicate"])
+        block_run = codex_runs["codex-block"]
+        block_events = json.loads((Path(block_run["task_dir"]) / "events.json").read_text())
+        self.check("codex post-paste non-idle change still withholds Enter",
+                   block_run["submission"] == "unknown"
+                   and block_run["state"] == "not_started"
+                   and block_run["native_status"] == "blocked"
+                   and "Enter was withheld" in (block_run.get("message") or "")
+                   and block_events["post_paste_block_sent"]
+                   and not block_events["enter_received"]
+                   and block_run["closed_result"]["closed"] is True)
+        self.check("codex worker tab cleaned up after jitter checks", {
+            row["window_id"] for row in self.windows(session)["windows"]} == {controller_window, manual_window})
+
         after = self.windows(other)
         self.check("unrelated Rex session stayed intact", baseline["windows"] == after["windows"]
                    and baseline["active_window_id"] == after["active_window_id"])

@@ -1440,34 +1440,64 @@ def rex_status_advanced(updated_at, baseline):
     return current is not None and earlier is not None and current > earlier
 
 
-def rex_ready(binding):
-    deadline = time.monotonic() + START_TIMEOUT_MS / 1000
+def rex_ready(binding, deadline=None):
+    deadline = time.monotonic() + START_TIMEOUT_MS / 1000 if deadline is None else deadline
+    settle = HARNESSES[binding["harness"]].rex_idle_settle_seconds
+    stable_terminal = None
+    stable_since = None
     while True:
         terminal = rex.get(binding)
         if not terminal or terminal["state"] != "live" or terminal["status"] in ("blocked", "error"):
             raise rex.RexError("Rex worker exited or reported a startup problem before native idle readiness")
         if terminal["status"] == "idle" and rex_status_time(terminal["updated_at"]) is not None:
-            return terminal
-        if time.monotonic() >= deadline:
+            if settle <= 0:
+                return terminal
+            now = time.monotonic()
+            if terminal != stable_terminal:
+                stable_terminal = terminal
+                stable_since = now
+            elif now - stable_since >= settle:
+                return terminal
+        else:
+            stable_terminal = None
+            stable_since = None
+        now = time.monotonic()
+        if now >= deadline:
             raise rex.RexError("native idle readiness missing in the Rex block; inspect for a startup dialog")
-        time.sleep(0.25)
+        time.sleep(min(0.25, deadline - now))
 
 
 def submit_rex_task(directory, task, state):
     binding = task["backend"]
+    start_deadline = time.monotonic() + START_TIMEOUT_MS / 1000
     try:
-        baseline = rex_ready(binding)
-        pointer = prepare_send(
-            directory, task, lambda: rex.capture(binding, binding["block"], visible=True),
-            lambda message: rex.RexError(message, "not_sent"),
-        )
-        state.update(startup_ready=True, native_status="idle", baseline_status_at=baseline["updated_at"],
-                     baseline_status_owner=baseline["owner"],
-                     state="not_started", problem=None, submission="unknown")
-        save_state(directory, state)
-        if state["closed"] or state["state"] == "done":
-            return
-        rex.send(binding, pointer, baseline)
+        for attempt in range(2):
+            baseline = rex_ready(binding, start_deadline)
+            pointer = prepare_send(
+                directory, task, lambda: rex.capture(binding, binding["block"], visible=True),
+                lambda message: rex.RexError(message, "not_sent"),
+            )
+            state.update(startup_ready=True, native_status="idle", baseline_status_at=baseline["updated_at"],
+                         baseline_status_owner=baseline["owner"],
+                         state="not_started", problem=None, submission="unknown")
+            save_state(directory, state)
+            if state["closed"] or state["state"] == "done":
+                return
+            try:
+                rex.send(binding, pointer, baseline)
+                break
+            except rex.RexError as exc:
+                if exc.kind != "not_sent" or attempt > 0:
+                    raise
+                state.update(startup_ready=False, baseline_status_at=None, baseline_status_owner=None,
+                             state="starting", problem=None, submission="not_sent")
+                save_state(directory, state)
+                if state["closed"] or state["state"] == "done":
+                    return
+                terminal = rex.get(binding)
+                if (not terminal or terminal["state"] != "live"
+                        or terminal["status"] in ("blocked", "error")):
+                    raise
         state.update(submission="sent", problem="task submitted; execution acknowledgement not observed; "
                      "inspect and use wait --recheck, never resend")
         save_state(directory, state)
