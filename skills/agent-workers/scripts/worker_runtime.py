@@ -17,6 +17,7 @@ class Harness:
     screen_blocker: str | None = None
     native_no_daemon: bool = False
     rex_paste_delay: float = 0
+    rex_idle_settle_seconds: float = 0
 
 
 HARNESSES = {
@@ -25,7 +26,7 @@ HARNESSES = {
                   worker_unset_env=("PI_SESSION_ID",), legacy_session_source="herdr:pi"),
     "codex": Harness("Codex", ("codex",), effort_args=("-c", 'model_reasoning_effort="{effort}"'),
                      model_flag="-m", controller_session_env="CODEX_THREAD_ID",
-                     native_no_daemon=True, rex_paste_delay=0.3),
+                     native_no_daemon=True, rex_paste_delay=0.3, rex_idle_settle_seconds=0.75),
     "claude": Harness("Claude Code", ("claude", "claude-code"),
                       controller_session_env="CLAUDE_CODE_SESSION_ID", worker_unset_env=("CLAUDECODE",)),
     "agy": Harness("Antigravity", ("agy", "antigravity"),
