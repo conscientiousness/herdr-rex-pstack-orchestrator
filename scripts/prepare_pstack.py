@@ -25,6 +25,46 @@ POTETO_WORKER_GUARD = (
     "**Worker guard:** If you are a worker running from a `brief.md`, skip this runtime "
     "section and the Subagents and Playbooks sections. Follow only Non-negotiables and Principles.\n\n"
 )
+POTETO_KICKOFF_PATTERN = re.compile(
+    r"^- Starting any agent, whether a Task subagent or a Project worker → [^\n]+$",
+    re.MULTILINE,
+)
+POTETO_KICKOFF_REPLACEMENT = (
+    "- Starting any agent or worker → delegate through `agent-workers` per "
+    "[pstack-adapter](../pstack-adapter/SKILL.md). Skip upstream `worker.md` kickoff, "
+    "include the no-nested-workers rule, and give `poteto-agent` tasks the absolute path to this file."
+)
+POTETO_SUBAGENTS_PATTERN = re.compile(
+    r"^## Subagents\n.*?(?=\n## )",
+    re.MULTILINE | re.DOTALL,
+)
+POTETO_SUBAGENTS_REPLACEMENT = (
+    "## Subagents\n\n"
+    "Delegate all workers through `agent-workers` and resolve roles from `workers.toml` per "
+    "[pstack-adapter](../pstack-adapter/SKILL.md) (never native `Task`/`Agent` tools, Cursor model "
+    "sheets, or `/setup-pstack`).\n\n"
+    "- Pass file pointers and absolute paths, include the no-nested-workers rule from "
+    "[pstack-adapter](../pstack-adapter/SKILL.md#enter-a-workflow), and pass absolute paths to "
+    "`poteto-agent.md` or `comment-sicko.md` when a playbook calls for them.\n"
+    "- You own every worker's work. Review the diff and write your own summary.\n"
+    "- **Fresh workers by default.** Give a fix round, follow-up, retry, or next queue item to a "
+    "fresh worker with the original brief, every later directive, and the prior worker's report "
+    "and branch.\n"
+)
+ADAPTED_WORKER_MD = (
+    "<!-- Adapted by prepare_pstack.py for agent-workers + pstack-adapter. -->\n"
+    "Follow the assignment and `## Worker rules` appended at the end of your `brief.md`.\n\n"
+    "- **No nested workers:** Do not delegate, use native subagents, or run a whole playbook. "
+    "Complete this assignment yourself, and report any need for further delegation to the controller.\n"
+    "- The bar in your brief is the whole bar. Add no check, gate, sign-off, or review round above it.\n"
+    "- Never open an interactive question for the user. Resolve routine, reversible choices from the "
+    "brief and repository conventions; report missing required input or authorization in `result.json` "
+    "with `status: \"blocked\"`.\n"
+    "- For repository delivery tasks that open a PR (not read-only research or audit tasks): follow "
+    "PR-first rules in the brief, open PRs ready for review (never draft), use `type(scope): subject` "
+    "titles, keep PR bodies concise (`Why`, `What changed`, `Scope`, `Tradeoffs`, `Blast Radius`, "
+    "`Verification`), and link long logs or tables from files or comments.\n"
+)
 
 
 def git(source, *args):
@@ -54,8 +94,20 @@ def skill_preamble(name):
     return RUNTIME_PREAMBLE
 
 
+def adapt_poteto_body(body, path):
+    body, kickoff_hits = POTETO_KICKOFF_PATTERN.subn(POTETO_KICKOFF_REPLACEMENT, body)
+    if kickoff_hits != 1:
+        raise ValueError(f"Expected 1 worker.md kickoff trigger in {path}, found {kickoff_hits}")
+    body, subagents_hits = POTETO_SUBAGENTS_PATTERN.subn(POTETO_SUBAGENTS_REPLACEMENT, body)
+    if subagents_hits != 1:
+        raise ValueError(f"Expected 1 ## Subagents section in {path}, found {subagents_hits}")
+    return body
+
+
 def portable_skill(path, preamble):
     frontmatter, body = split_frontmatter(path.read_text(), path)
+    if path.parent.name == "poteto-mode":
+        body = adapt_poteto_body(body, path)
     match = frontmatter_field(frontmatter, "description")
     if not match:
         raise ValueError(f"Missing description: {path}")
@@ -110,6 +162,11 @@ def prepare(source, output):
         shutil.copytree(path.parent, target)
         if content is not None:
             (target / "SKILL.md").write_text(content)
+        if path.parent.name == "poteto-mode":
+            worker_md = target / "worker.md"
+            if not worker_md.is_file():
+                raise ValueError(f"Expected upstream worker.md in {path.parent}")
+            worker_md.write_text(ADAPTED_WORKER_MD)
         skill_md = target / "SKILL.md"
         if has_disable_model_invocation(skill_md.read_text(), skill_md):
             openai_yaml = target / "agents/openai.yaml"
