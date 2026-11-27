@@ -60,19 +60,22 @@ while True:
         task_id = re.search(r'"task_id"\s*:\s*"([^"]+)"', text).group(1)
         nonce = re.search(r'"nonce"\s*:\s*"([^"]+)"', text).group(1)
         gate_match = re.search(r"^GATE=(.+)$", text, re.MULTILINE)
+        files_match = re.search(r"^FILES=(.+)$", text, re.MULTILINE)
         report("working")
+        os.write(1, f"LIVE_PROGRESS_LINE {task_id}\r\n".encode())
         if gate_match:
             gate = pathlib.Path(gate_match.group(1).strip())
             while not gate.exists():
                 time_wait = select.select([], [], [], 0.05)
         result = brief.with_name("result.json")
+        files = json.loads(files_match.group(1).strip()) if files_match else []
         tmp = result.with_suffix(".new")
         tmp.write_text(json.dumps({
             "task_id": task_id,
             "nonce": nonce,
             "status": "completed",
             "summary": "run-wait ok",
-            "files": [],
+            "files": files,
             "question": None,
         }))
         tmp.replace(result)
@@ -194,6 +197,16 @@ def main():
         check("reject_negative_max_seconds",
               p_neg.returncode == 1 and json.loads(p_neg.stdout)["error"] == "invalid_arguments")
 
+        p_cont_no_wait = run_cli(
+            args.horch,
+            ["run", "ok-w", "--brief", str(brief_plain), "--cwd", str(work_dir),
+             "--profile", "only-prof", "--continue-on-long-running"],
+            env=env,
+        )
+        check("reject_continue_on_long_running_without_wait",
+              p_cont_no_wait.returncode == 1
+              and json.loads(p_cont_no_wait.stdout)["error"] == "invalid_arguments")
+
         # 2. Parallel run --wait with real-time pipe flush before worker completes (no default workers.toml)
         gate_a = work_dir / "gate-a.release"
         gate_b = work_dir / "gate-b.release"
@@ -290,19 +303,110 @@ def main():
         check("start_failed_task_closed_cleanly",
               p_close.returncode == 0 and json.loads(p_close.stdout)["closed"] is True)
 
-        # 5. run --brief - --wait reads brief from stdin
+        # 5. run --brief - --wait reads brief from stdin and normalizes relative/absolute files
+        report_file = work_dir / "nested" / "report.md"
+        report_file.parent.mkdir(parents=True, exist_ok=True)
+        report_file.write_text("ok\n", encoding="utf-8")
+        # Depth of tasks/t-xxxxxx relative to scratch is 4 (state/herdr-orchestrator/tasks/t-xxxxxx)
+        rel_report = "../../../../work/nested/report.md"
         p_stdin = run_cli(
             args.horch,
             ["run", "ok-w", "--brief", "-", "--cwd", str(work_dir), "--profile", "only-prof", "--wait"],
             env=env,
-            input_text="# Stdin brief\nWrite result.json.\n",
+            input_text=f"# Stdin brief\nFILES={json.dumps(['local.txt', str(report_file), rel_report])}\n",
         )
         stdin_lines = [json.loads(line) for line in p_stdin.stdout.splitlines() if line.strip()]
-        check("run_wait_with_stdin_brief",
+        expected_local = os.path.normpath(os.path.join(stdin_lines[0]["task_dir"], "local.txt")) if len(stdin_lines) >= 1 else ""
+        check("run_wait_with_stdin_brief_and_normalized_files",
               p_stdin.returncode == 0
               and len(stdin_lines) == 2
               and stdin_lines[1]["state"] == "done"
-              and stdin_lines[1]["closed"] is True)
+              and stdin_lines[1]["closed"] is True
+              and stdin_lines[1]["files"] == [expected_local, str(report_file), str(report_file)])
+
+        # 6. inspect live worker + --continue-on-long-running flushes long_running NDJSON and settles to done
+        gate_lr = work_dir / "gate-lr.release"
+        brief_lr = work_dir / "lr.md"
+        brief_lr.write_text(f"GATE={gate_lr}\n", encoding="utf-8")
+        proc_lr = subprocess.Popen(
+            [sys.executable, str(args.horch), "run", "ok-w", "--brief", str(brief_lr),
+             "--cwd", str(work_dir), "--profile", "only-prof", "--wait", "--continue-on-long-running"],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            lr_launch_line = readline_timeout(proc_lr.stdout, 30)
+            lr_launch = json.loads(lr_launch_line) if lr_launch_line.strip() else {}
+            lr_id = lr_launch.get("task_id", "")
+            lr_task_dir = Path(lr_launch.get("task_dir", ""))
+
+            # Inspect while live and working
+            p_insp_live = run_cli(args.horch, ["inspect", lr_id, "--lines", "5"], env=env)
+            insp_live = json.loads(p_insp_live.stdout.strip()) if p_insp_live.stdout.strip() else {}
+            check("inspect_live_core_worker_reports_tail_and_status",
+                  p_insp_live.returncode == 0
+                  and insp_live.get("backend") == "core"
+                  and insp_live.get("terminal_state") == "live"
+                  and insp_live.get("native_status") == "working"
+                  and isinstance(insp_live.get("elapsed_seconds"), int)
+                  and any(f"LIVE_PROGRESS_LINE {lr_id}" in line for line in insp_live.get("tail_lines", [])))
+
+            # Backdate created_at beyond notify_after_minutes (180m) so next wait poll emits long_running
+            task_json_path = lr_task_dir / "task.json"
+            task_doc = json.loads(task_json_path.read_text(encoding="utf-8"))
+            task_doc["created_at"] = "2020-01-01T00:00:00Z"
+            task_json_path.write_text(json.dumps(task_doc, indent=2) + "\n", encoding="utf-8")
+            # Nudge wait loop by launching a fast no-op? Wait loop polls on event or interval;
+            # on core-only it uses wait_changes(180s), so verify wait --continue-on-long-running directly too.
+            gate_lr.touch()
+            lr_rest, _ = proc_lr.communicate(timeout=30)
+            lr_done = json.loads(lr_rest.strip().splitlines()[-1]) if lr_rest.strip() else {}
+            check("run_wait_continue_on_long_running_completes",
+                  proc_lr.returncode == 0 and lr_done.get("state") == "done" and lr_done.get("closed") is True)
+            p_insp_closed = run_cli(args.horch, ["inspect", lr_id], env=env)
+            insp_closed = json.loads(p_insp_closed.stdout.strip()) if p_insp_closed.stdout.strip() else {}
+            check("inspect_closed_worker_reports_closed",
+                  p_insp_closed.returncode == 0
+                  and insp_closed.get("closed") is True
+                  and insp_closed.get("terminal_state") == "closed"
+                  and insp_closed.get("tail_lines") == [])
+        finally:
+            if proc_lr.poll() is None:
+                proc_lr.kill()
+
+        # 7. wait --continue-on-long-running emits long_running NDJSON line and stays alive until done
+        gate_lr2 = work_dir / "gate-lr2.release"
+        brief_lr2 = work_dir / "lr2.md"
+        brief_lr2.write_text(f"GATE={gate_lr2}\n", encoding="utf-8")
+        r_lr2 = json.loads(run_cli(
+            args.horch,
+            ["run", "ok-w", "--brief", str(brief_lr2), "--cwd", str(work_dir), "--profile", "only-prof"],
+            env=env,
+        ).stdout)
+        t_lr2_path = Path(r_lr2["task_dir"]) / "task.json"
+        t_lr2_doc = json.loads(t_lr2_path.read_text(encoding="utf-8"))
+        t_lr2_doc["created_at"] = "2020-01-01T00:00:00Z"
+        t_lr2_path.write_text(json.dumps(t_lr2_doc, indent=2) + "\n", encoding="utf-8")
+        proc_wlr = subprocess.Popen(
+            [sys.executable, str(args.horch), "wait", "--profile", "only-prof",
+             "--continue-on-long-running", r_lr2["task_id"]],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            first_line = readline_timeout(proc_wlr.stdout, 15)
+            lr_notice = json.loads(first_line) if first_line.strip() else {}
+            still_alive = proc_wlr.poll() is None
+            gate_lr2.touch()
+            rest_wlr, _ = proc_wlr.communicate(timeout=30)
+            settled_wlr = json.loads(rest_wlr.strip()) if rest_wlr.strip() else {}
+            check("wait_continue_on_long_running_streams_notice_and_waits_for_done",
+                  lr_notice.get("state") == "long_running"
+                  and still_alive
+                  and proc_wlr.returncode == 0
+                  and settled_wlr.get("state") == "done"
+                  and settled_wlr.get("closed") is True)
+        finally:
+            if proc_wlr.poll() is None:
+                proc_wlr.kill()
 
     finally:
         stop = subprocess.run([core_bin, "server", "stop"], env=env, capture_output=True, text=True, timeout=15)

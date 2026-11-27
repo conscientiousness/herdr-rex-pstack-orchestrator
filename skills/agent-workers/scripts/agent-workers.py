@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """agent-workers - start, watch, and close worker agents in Herdr or Rex.
 
-Core of the agent-workers skill. Subcommands: run, wait, list, roles, close, submit, verify-viewer, detect, check, stats.
+Core of the agent-workers skill. Subcommands: run, wait, inspect, list, roles, close, submit, verify-viewer, detect, check, stats.
 Python 3.11+, standard library only. Every command prints JSON on stdout;
 errors are one {"error": code, "message": text} object with exit status 1.
 """
@@ -90,7 +90,7 @@ It must be one JSON object with exactly these keys:
       "question": null
     }}
 
-`status` is `completed`, `blocked`, or `failed`. `files` lists the output files you wrote, relative to the directory of `result.json`. `question` is required when `status` is `blocked`, else null.
+`status` is `completed`, `blocked`, or `failed`. `files` lists the output files you wrote as absolute paths (or paths relative to the directory of `result.json` for files inside the task directory). `question` is required when `status` is `blocked`, else null.
 """
 
 
@@ -98,8 +98,10 @@ def emit(obj):
     print(json.dumps(obj, ensure_ascii=False), flush=True)
 
 
-def fail(code, message, herdr_payload=None):
+def fail(code, message, herdr_payload=None, hint=None):
     obj = {"error": code, "message": message}
+    if hint is not None:
+        obj["hint"] = hint
     if herdr_payload is not None:
         obj["herdr"] = herdr_payload
     emit(obj)
@@ -521,6 +523,7 @@ def load_config(path=None, *, profile=None):
             "config_invalid",
             f"cannot access {path.name} at {path} (permission denied; if running inside a "
             "terminal sandbox, rerun agent-workers outside the sandbox)",
+            hint="sandbox_or_socket_blocked",
         )
     except FileNotFoundError:
         extra = ""
@@ -535,6 +538,7 @@ def load_config(path=None, *, profile=None):
             f"{path.name} not found at {path}{extra} (if running inside a terminal sandbox that "
             "restricts access outside the workspace, rerun agent-workers outside the sandbox "
             "before assuming setup is missing)",
+            hint="sandbox_or_missing_config",
         )
     except OSError as exc:
         fail("config_invalid", f"cannot access {path}: {exc}")
@@ -547,6 +551,7 @@ def load_config(path=None, *, profile=None):
             "config_invalid",
             f"cannot read {path.name} at {path} (permission denied; if running inside a "
             "terminal sandbox, rerun agent-workers outside the sandbox)",
+            hint="sandbox_or_socket_blocked",
         )
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         fail("config_invalid", f"cannot parse {path}: {exc}")
@@ -854,6 +859,23 @@ def _pane_has_live_ids(pane):
     )
 
 
+def _truncation_hint(needle, candidate_screens):
+    if len(needle) <= 16:
+        return ""
+    for length in range(len(needle) - 1, 15, -1):
+        prefix = needle[:length]
+        hits = sum(prefix in normalized for normalized in candidate_screens)
+        if hits == 1:
+            return (
+                " A prefix of --caller-text uniquely matched one candidate; the tail may be "
+                "truncated by terminal width. Pass a shorter (16+ char) untruncated prefix "
+                "or visible phrase."
+            )
+        if hits > 1:
+            return ""
+    return ""
+
+
 def require_caller_context(claimed=None, caller_text=None):
     """Prove the conversation's live pane, independently of a daemon's process host.
 
@@ -878,6 +900,7 @@ def require_caller_context(claimed=None, caller_text=None):
                  "conversation's visible screen.")
         needle = " ".join(caller_text.split())
         matches = []
+        candidate_screens = []
         checked = 0
         for candidate in herdr_path(herdr("pane", "list", timeout=30.0), "result", "panes"):
             candidate_id = candidate.get("pane_id") if isinstance(candidate, dict) else None
@@ -911,13 +934,16 @@ def require_caller_context(claimed=None, caller_text=None):
                     continue
                 raise
             checked += 1
-            if needle in " ".join(text.split()):
+            normalized = " ".join(text.split())
+            candidate_screens.append(normalized)
+            if needle in normalized:
                 matches.append((candidate_pane, candidate_info, text))
         if len(matches) != 1:
+            hint = _truncation_hint(needle, candidate_screens) if not matches else ""
             fail("caller_context_invalid",
                  f"Conversation text must match exactly one live controller pane in this cwd; "
                  f"checked {checked} candidate pane(s), matching panes: {[m[0]['pane_id'] for m in matches]} "
-                 f"(prefer unwrapped plain text such as the status line). {guidance}")
+                 f"(prefer unwrapped plain text such as the status line).{hint} {guidance}")
         pane, info, screen = matches[0]
         return caller_verification(pane, info, "conversation_text", screen)
 
@@ -1052,6 +1078,7 @@ def require_rex_context(claimed, caller_text):
         blocks = rex.blocks(base_binding, all_sessions=True)
         needle = " ".join(caller_text.split())
         matches = []
+        candidate_screens = []
         checked = 0
         for candidate in blocks:
             if (not candidate.get("window_id") or candidate.get("host_id") != base_binding["host_id"]
@@ -1075,13 +1102,15 @@ def require_rex_context(claimed, caller_text):
                     continue
                 raise
             checked += 1
+            candidate_screens.append(" ".join(screen.split()))
             if matched:
                 matches.append((candidate, candidate_binding, candidate_process, screen))
         if len(matches) != 1:
+            hint = _truncation_hint(needle, candidate_screens) if not matches else ""
             fail("caller_context_invalid",
                  f"Conversation text must match exactly one Rex controller block in this cwd; "
                  f"checked {checked} candidate block(s), matches: {[m[0]['block_id'] for m in matches]} "
-                 f"(prefer unwrapped plain text such as the status line). {guidance}")
+                 f"(prefer unwrapped plain text such as the status line).{hint} {guidance}")
         caller, binding, process, screen = matches[0]
         block_id = caller["block_id"]
         child, foreground = process.get("child") or {}, process.get("foreground") or {}
@@ -1160,8 +1189,11 @@ def dispatch_context(args):
 
 
 def cmd_run(args):
+    continue_on_long_running = bool(getattr(args, "continue_on_long_running", False))
     if args.max_seconds is not None and not args.wait:
         fail("invalid_arguments", "--max-seconds on run requires --wait")
+    if continue_on_long_running and not args.wait:
+        fail("invalid_arguments", "--continue-on-long-running on run requires --wait")
     if args.max_seconds is not None and args.max_seconds < 0:
         fail("invalid_arguments", "--max-seconds must be a non-negative integer")
     caller, binary = dispatch_context(args)
@@ -1191,7 +1223,8 @@ def cmd_run(args):
     emit(launched)
     if args.wait:
         info = make_info(launched["task_id"])
-        wait_until_change([info], config, args.max_seconds)
+        wait_until_change([info], config, args.max_seconds,
+                          continue_on_long_running=continue_on_long_running)
         emit(wait_line(info))
 
 
@@ -2152,7 +2185,7 @@ def evaluate_task(info, agent, config, fallback_confirmed):
     return "running"
 
 
-def poll_round(infos, previous, config):
+def poll_round(infos, previous, config, *, continue_on_long_running=False):
     for info in infos:
         if info["state"]["state"] == "starting":
             info["state"] = load_state(info["dir"])
@@ -2226,6 +2259,11 @@ def poll_round(infos, previous, config):
                 and (not is_core(info["task"]) or info["task"].get("viewer"))):
             notify(f"agent-workers: {info['task_id']}", notice)
         info["reported"] = reported
+        if reported == "long_running" and continue_on_long_running:
+            emit(wait_line(info))
+            info["reported"] = "running"
+            previous[info["task_id"]] = "running"
+            continue
         if previous.get(info["task_id"]) != reported:
             previous[info["task_id"]] = reported
             changed = True
@@ -2235,11 +2273,19 @@ def poll_round(infos, previous, config):
     return changed, True, problem_changed
 
 
+def _normalize_result_file(directory, item):
+    if not isinstance(item, str) or not item.strip():
+        return item
+    return os.path.normpath(os.path.join(str(directory), item))
+
+
 def wait_line(info):
     state = load_state(info["dir"])
     reported = state["state"] if state["closed"] or state["state"] in ("done", "starting") else info["reported"]
     verdict = result_verdict(info["dir"], info["task"])
     parsed = read_json(info["dir"] / "result.json") if reported == "done" and verdict == "valid" else None
+    raw_files = parsed.get("files") if parsed and isinstance(parsed.get("files"), list) else []
+    files = [_normalize_result_file(info["dir"], item) for item in raw_files]
     return {
         "task_id": info["task_id"],
         "state": reported,
@@ -2252,7 +2298,7 @@ def wait_line(info):
         **viewer_fields(info["task"]),
         "summary": parsed.get("summary") if parsed else None,
         "result_path": str(info["dir"] / "result.json"),
-        "files": parsed.get("files") if parsed and isinstance(parsed.get("files"), list) else [],
+        "files": files,
         "question": parsed.get("question") if parsed else None,
     }
 
@@ -2300,12 +2346,13 @@ def cmd_wait(args):
             if (not info["state"]["closed"] and info["state"]["state"] in SETTLED_STATES
                     and info["state"]["state"] != "done"):
                 info["recheck"] = True
-    wait_until_change(infos, config, args.max_seconds, wait_all=args.all)
+    wait_until_change(infos, config, args.max_seconds, wait_all=args.all,
+                      continue_on_long_running=bool(getattr(args, "continue_on_long_running", False)))
     for info in infos:
         emit(wait_line(info))
 
 
-def wait_until_change(infos, config, max_seconds, wait_all=False):
+def wait_until_change(infos, config, max_seconds, wait_all=False, continue_on_long_running=False):
     if all((info["state"]["closed"] or info["state"]["state"] in SETTLED_STATES)
            and not info.get("recheck") for info in infos):
         return
@@ -2313,7 +2360,9 @@ def wait_until_change(infos, config, max_seconds, wait_all=False):
     previous = {info["task_id"]: info["state"]["state"] for info in infos}
     failures = 0
     while True:
-        changed, polled, problem_changed = poll_round(infos, previous, config)
+        changed, polled, problem_changed = poll_round(
+            infos, previous, config, continue_on_long_running=continue_on_long_running
+        )
         failures = 0 if polled else failures + 1
         if failures >= 3:
             fail("herdr_error", "could not poll herdr agent list")
@@ -2709,6 +2758,91 @@ def cmd_list(args):
         emit(row)
 
 
+def _tail_nonempty_lines(screen, limit):
+    if not isinstance(screen, str) or limit <= 0:
+        return []
+    nonempty = [line.rstrip() for line in screen.splitlines() if line.strip()]
+    return nonempty[-limit:]
+
+
+def _elapsed_seconds(task):
+    try:
+        started = stats_timestamp(task["created_at"])
+    except (KeyError, ValueError, OverflowError):
+        return None
+    return max(0, round((datetime.now(timezone.utc) - started).total_seconds()))
+
+
+def cmd_inspect(args):
+    if args.lines <= 0 or args.lines > 200:
+        fail("invalid_arguments", "--lines must be between 1 and 200")
+    directory = task_dir(args.task_id)
+    task = load_task(directory, args.task_id)
+    state = load_state(directory)
+    backend_kind = task.get("backend", {}).get("kind", "legacy")
+    terminal_state = "closed" if state.get("closed") else None
+    native_status = state.get("native_status")
+    status_updated_at = None
+    tail_lines = []
+    if not state.get("closed"):
+        if is_rex(task):
+            binding = task["backend"]
+            terminal = rex.get(binding) if binding.get("block") else None
+            if terminal is None:
+                terminal_state = "absent"
+                native_status = None
+            else:
+                terminal_state = terminal["state"]
+                native_status = terminal["status"]
+                status_updated_at = terminal.get("updated_at")
+                if terminal["state"] == "live":
+                    tail_lines = _tail_nonempty_lines(
+                        rex.capture(binding, binding["block"], visible=True), args.lines
+                    )
+        elif is_core(task):
+            binding = task["backend"]
+            terminal = core.get(binding)
+            if terminal is None:
+                terminal_state = "absent"
+                native_status = None
+            else:
+                terminal_state = terminal["state"]
+                native_status = core.status(terminal)
+                screen = core.call(binding, "terminal.read", terminal=binding["terminal"], lines=0)["text"]
+                tail_lines = _tail_nonempty_lines(screen, args.lines)
+        else:
+            socket_path = task.get("backend", {}).get("socket_path")
+            env = dict(os.environ, HERDR_SOCKET_PATH=socket_path) if socket_path else None
+            try:
+                entry = herdr_path(herdr("agent", "get", task["agent"], timeout=30.0, env=env), "result", "agent")
+                terminal_state = "live"
+                native_status = entry.get("agent_status")
+                tail_lines = _tail_nonempty_lines(visible_text(task["pane_id"], env=env), args.lines)
+            except HerdrError as exc:
+                if herdr_error_code(exc) in MISSING_PANE_CODES | {"agent_not_found"}:
+                    terminal_state = "absent"
+                    native_status = None
+                else:
+                    raise
+    emit({
+        "task_id": args.task_id,
+        "worker": task.get("worker"),
+        "harness": task.get("harness"),
+        "backend": backend_kind,
+        "state": state["state"],
+        "closed": bool(state.get("closed")),
+        "elapsed_seconds": _elapsed_seconds(task),
+        "terminal_state": terminal_state,
+        "native_status": native_status,
+        "status_updated_at": status_updated_at,
+        "result_verdict": result_verdict(directory, task),
+        "submission": state["submission"],
+        "execution_observed": state["saw_working"],
+        "message": state["problem"],
+        "tail_lines": tail_lines,
+    })
+
+
 def cmd_close(args):
     directory = task_dir(args.task_id)
     try:
@@ -2938,6 +3072,8 @@ def build_parser():
     p_run.add_argument("--cwd", help="working directory for the worker (default: the current directory)")
     p_run.add_argument("--wait", action="store_true", help="flush the launch JSON line, then wait for this task to change state")
     p_run.add_argument("--max-seconds", type=int, default=None, help="with --wait, return after at most this many seconds")
+    p_run.add_argument("--continue-on-long-running", action="store_true",
+                       help="with --wait, emit a long_running NDJSON line and keep waiting until settlement or --max-seconds")
     add_caller_arguments(p_run)
     add_config_arguments(p_run)
     p_run.set_defaults(func=cmd_run)
@@ -2947,8 +3083,15 @@ def build_parser():
     p_wait.add_argument("--all", action="store_true", help="wait until all targeted tasks settle/close, returning early on any problem or long_running state")
     p_wait.add_argument("--recheck", action="store_true", help="re-poll named unclosed problem tasks")
     p_wait.add_argument("--max-seconds", type=int, default=None, help="return after at most this many seconds")
+    p_wait.add_argument("--continue-on-long-running", action="store_true",
+                        help="emit a long_running NDJSON line and keep waiting until settlement or --max-seconds")
     add_config_arguments(p_wait)
     p_wait.set_defaults(func=cmd_wait)
+
+    p_inspect = sub.add_parser("inspect", help="read-only terminal status and visible tail lines for one task")
+    p_inspect.add_argument("task_id", help="task to inspect")
+    p_inspect.add_argument("--lines", type=int, default=15, help="number of trailing non-empty visible lines (1-200, default 15)")
+    p_inspect.set_defaults(func=cmd_inspect)
 
     p_list = sub.add_parser("list", help="print tasks as JSON lines, oldest first")
     p_list.add_argument("--active", action="store_true", help="only unclosed tasks")
@@ -3009,11 +3152,15 @@ def main(argv=None):
     except TaskInvalidError as exc:
         fail("task_invalid", str(exc))
     except HerdrError as exc:
-        fail("herdr_error", str(exc), exc.payload)
+        lowered = str(exc).lower()
+        hint = ("sandbox_or_socket_blocked"
+                if any(tok in lowered for tok in ("permission denied", "operation not permitted", "socket", "connect"))
+                else None)
+        fail("herdr_error", str(exc), exc.payload, hint=hint)
     except core.CoreError as exc:
-        fail("core_error", str(exc))
+        fail("core_error", str(exc), hint="sandbox_or_socket_blocked" if exc.kind == "unavailable" else None)
     except rex.RexError as exc:
-        fail("rex_error", str(exc))
+        fail("rex_error", str(exc), hint="sandbox_or_socket_blocked" if exc.kind == "unavailable" else None)
     except KeyboardInterrupt:
         sys.exit(130)
     except Exception as exc:

@@ -67,7 +67,15 @@ def new_binding(binary):
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise CoreError(f"core startup failed: {exc}") from exc
     if proc.returncode:
-        raise CoreError(f"installed core startup failed: {(proc.stderr or proc.stdout).strip()[:1000]}")
+        detail = (proc.stderr or proc.stdout).strip()[:1000]
+        lowered = detail.lower()
+        if any(token in lowered for token in ("permission denied", "operation not permitted", "socket")):
+            raise CoreError(
+                f"installed core startup failed: {detail} "
+                "(if running inside a terminal sandbox, rerun outside the sandbox)",
+                "unavailable",
+            )
+        raise CoreError(f"installed core startup failed: {detail}")
     with Connection(binding) as connection:
         binding["core_id"] = connection.core_id
     return binding
@@ -105,7 +113,11 @@ class Connection:
                 raise CoreError("core identity differs at recorded endpoint; refusing operation", "identity_mismatch")
         except OSError as exc:
             self.close()
-            raise CoreError(f"recorded core endpoint unavailable: {exc}") from exc
+            raise CoreError(
+                f"recorded core endpoint unavailable: {exc} "
+                "(if running inside a terminal sandbox, rerun outside the sandbox)",
+                "unavailable",
+            ) from exc
         except BaseException:
             self.close()
             raise
@@ -151,7 +163,11 @@ def call(binding, method, **params):
         with Connection(binding) as connection:
             return connection.call(method, **params)
     except OSError as exc:
-        raise CoreError(f"recorded core endpoint unavailable: {exc}") from exc
+        raise CoreError(
+            f"recorded core endpoint unavailable: {exc} "
+            "(if running inside a terminal sandbox, rerun outside the sandbox)",
+            "unavailable",
+        ) from exc
 
 
 def get(binding):

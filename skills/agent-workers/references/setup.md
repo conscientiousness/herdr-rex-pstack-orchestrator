@@ -25,7 +25,7 @@ Run setup when the user asks, or when `agent-workers run` fails with `config_inv
 
    Auto-approval can still deny an action, and startup trust dialogs are separate from tool approvals.
 4. Ask for `max_active_workers` (default 4) and `notify_after_minutes` (default 180).
-   The controller needs access to `~/.config/herdr-orchestrator/`, `~/.local/state/herdr-orchestrator/`, and local Rex or Herdr Unix sockets. With Claude Code modes other than `--permission-mode auto`, add both directories to `permissions.additionalDirectories`. In sandboxed controllers such as `agy` or Codex, rerun `agent-workers` outside the sandbox if a call fails with `config_invalid`, permission, or socket errors.
+   The controller needs access to `~/.config/herdr-orchestrator/`, `~/.local/state/herdr-orchestrator/`, and local Rex or Herdr Unix sockets. With Claude Code modes other than `--permission-mode auto`, add both directories to `permissions.additionalDirectories`. In sandboxed controllers such as `agy` or Codex, rerun `agent-workers` outside the sandbox if a call fails with `config_invalid`, `rex_error`, `core_error`, `herdr_error`, `hint: "sandbox_or_socket_blocked"`, permission, or socket errors.
 5. Write `~/.config/herdr-orchestrator/workers.toml` (or `$XDG_CONFIG_HOME/herdr-orchestrator/workers.toml`) based on [workers.example.toml](workers.example.toml), then show the file to the user.
 6. Run `agent-workers check --cwd <worker-dir>` with caller options to verify delivery. For legacy Herdr Pi workers, install the integration first with `herdr integration install pi`. On any `ok: false` row, read `message`, inspect the terminal per [Problems](../SKILL.md#problems), and inform the user. After they clear a dialog, close the check task and rerun `agent-workers check <worker>`.
 
@@ -33,7 +33,7 @@ Run setup when the user asks, or when `agent-workers run` fails with `config_inv
 
 `run` and `check` verify where this conversation lives before launching any worker. Never guess from window focus or strip inherited multiplexer variables to force headless mode. Outside both Rex and Herdr, `agent-workers` uses headless `herdr-core`.
 
-Pass `--caller-text '<unique visible text>'` (at least 16 characters that stay on screen, such as the harness status line, not a message that tool output will scroll away):
+Pass `--caller-text '<unique visible text>'` (at least 16 characters currently visible and untruncated on screen, such as the left portion of the harness status line or a distinctive visible phrase from the current turn; avoid the right-hand tail of narrow status bars or text that tool output has scrolled off-screen):
 
 ```bash
 python3 <skill-dir>/scripts/agent-workers.py run <worker> --brief <file> --cwd <worker-dir> \
