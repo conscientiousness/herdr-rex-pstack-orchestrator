@@ -5,16 +5,16 @@ description: "Run original pstack workflows through configured workers in Rex, H
 
 # pstack-adapter
 
-Loaded by installed pstack skills before upstream text. Use [agent-workers](../agent-workers/SKILL.md) for dispatch, waiting, caller context, config profiles, PR-first delivery, worktrees, and failure recovery. Precedence: user and project instructions override this adapter, and this adapter overrides upstream tools, model defaults, setup, and Cursor paths. Preserve bundled text and report missing capabilities instead of faking them.
+Loaded by installed pstack skills before upstream text. Use [agent-workers](../agent-workers/SKILL.md) for dispatch, waiting, caller context, config profiles, PR-first delivery, worktrees, and failure recovery. Precedence: user and project instructions override this adapter, and this adapter overrides upstream tools, model defaults, setup, and Cursor paths. Preserve unrelated bundled skills verbatim and report missing capabilities instead of faking them.
 
 ## Enter a workflow
 
 1. **Load siblings:** Read sibling skills from `../<name>/SKILL.md` ([bundle.json](references/bundle.json)). No upstream checkout is needed. If a sibling is missing, stop and report an incomplete install ([compatibility.md#install](references/compatibility.md#install)). Never fetch another revision.
-2. **Resolve paths:** Read the target `<name>/SKILL.md`, plus any playbook or applied principle leaves. In `poteto-mode`, bare `scripts/...` and `playbooks/...` live under `../poteto-mode/`. Give workers absolute install paths.
+2. **Resolve paths and principles:** Read the target `<name>/SKILL.md` and active playbook. Read a `principle-*/SKILL.md` leaf on demand only when it actively changes a decision; do not pre-load unused principles. After context compaction, re-read only the specific leaf you need to cite (or apply the behavior without citing the leaf). In `poteto-mode`, bare `scripts/...` and `playbooks/...` live under `../poteto-mode/`. Give workers absolute install paths.
 3. **Own the workflow here:** Plan, assign, and verify in the controller. Keep playbook stopping points (Investigation and Forensics end in a cited answer, Prototype ends in a decision and throwaway artifact, Multi-phase plan ends in a plan) and run required child skills such as `no-comments` with Comment Sicko.
 4. **No nested workers (mandatory in every brief, overrides `agent-workers`):**
    > **Do not delegate, use native subagents, or run a whole playbook. Complete this assignment yourself, and report any need for further delegation to the controller.**
-5. **Skip `worker.md` kickoff:** In `poteto-mode` and routed skills, skip upstream `worker.md` kickoff. Dispatch via `agent-workers` with role, scope, criteria, exact authorized repos, hosts, and paths, and rule 4.
+5. **Skip upstream `worker.md` kickoff:** Dispatch via `agent-workers` with role, scope, criteria, exact authorized repos, hosts, and paths, and rule 4. (`poteto-mode/worker.md` is adapted as a fallback, not a required kickoff.)
 
 ## Tool mapping
 
@@ -22,11 +22,11 @@ Loaded by installed pstack skills before upstream text. Use [agent-workers](../a
 |---|---|
 | `Agent`, `Task`, `run_in_background` | `agent-workers run --wait` (or `run` plus background `wait --all`). |
 | `poteto-agent`, `comment-sicko` | Pass absolute paths to [poteto-agent.md](references/agents/poteto-agent.md) or [comment-sicko.md](references/agents/comment-sicko.md) (plus `../poteto-mode/SKILL.md` for `poteto-agent`). Instructions only, not worker selection. See first-output rules in [harness-tools.md](references/harness-tools.md). |
-| `generalPurpose` / `readonly: true` | Configured worker plus upstream prompt. Read-only workers write only to declared reports and `result.json` in the task directory. |
+| `generalPurpose` / `readonly: true` | Configured worker plus upstream prompt. Read-only research, experiment, or audit workers may share a checkout (no worktree, branch, or PR needed unless requested) when they write only to declared reports under `.audit/` and `result.json` in the task directory. |
 | Isolated writer | Separate worktree at `<main checkout>/.worktrees/<name>` (`--cwd`). |
 | `pstack/skills/<n>/`, `cursor-team-kit/skills/<n>/` | Sibling `<n>/` folder. Pass absolute paths for scripts. |
 | `setup-pstack`, Cursor model rules | `agent-workers` setup and `[roles]` in `workers.toml`. |
-| Shipping, landing, merge | [agent-workers PR-first rule](../agent-workers/SKILL.md#required-rules). |
+| Shipping, landing, merge | [agent-workers PR-first rule](../agent-workers/SKILL.md#required-rules) (applies to repository-modifying delivery tasks). |
 
 Use your harness's native file, search, shell, question, and checklist tools for `Read`, `Glob`, `Grep`, `AskQuestion`, and todos.
 
@@ -42,7 +42,7 @@ Run `agent-workers roles [<role>]` with the workflow's `--profile` or `--config`
 
 ## Artifacts and cleanup
 
-Store controller artifacts (verification evidence, review reports, decision logs) under `<main checkout>/.audit/<task-slug>/` and add `.audit/` to `.git/info/exclude`. Do not create other top-level directories such as `verification/`. Pass affected workers its absolute path. When the task finishes (PR merged or user confirms done), remove your session worktrees per `agent-workers` step 6 and delete `.audit/<task-slug>/` unless work is paused for pickup, the user asks to keep it, or a retained worktree depends on it. Report any retained paths and why they stay.
+Store controller artifacts (verification evidence, review reports, decision logs) under `<main checkout>/.audit/<task-slug>/` and add `.audit/` to `.git/info/exclude` (unless project conventions track `.audit/`). Do not create other top-level directories such as `verification/`. Pass affected workers its absolute path. When a code-delivery task finishes (PR merged or user confirms done), remove your session worktrees per `agent-workers` step 6 and delete `.audit/<task-slug>/` unless work is paused for pickup, the user or project conventions retain `.audit/` as part of a research or audit trail, or a retained worktree depends on it. Report any retained paths and why they stay.
 
 ## References
 

@@ -49,9 +49,13 @@ harness = "agy"
 model = "gemini-3.8-flash-high"
 args = ["--mode", "auto"]
 
-# Optional role routing for pstack-adapter.
+# Optional role routing for pstack-adapter (resolved by `agent-workers roles`).
 # Single roles name one worker; panel roles list one worker per fresh task.
+# Custom roles (such as "research" or "audit") are also supported.
 [roles]
 "feature, refactoring" = "gpt"
 "interrogate reviewers" = ["glm", "haiku"]
+# "how explorer" = "flash"
+# "why investigators" = ["gpt", "flash"]
+# "research" = "flash"
 # With one worker configured, use ["gpt", "gpt"] for two independent runs.
