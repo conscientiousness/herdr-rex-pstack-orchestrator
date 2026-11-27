@@ -59,6 +59,13 @@ def _cli(binding, *args, operation, expect_json=True, input_text=None):
                 raise RexError(f"Rex {operation} rejected: {reason}", "worker_absent")
         kind = {3: "target_not_found", 4: "unavailable"}.get(proc.returncode)
         # The CLI may include arguments, including pasted text, in its diagnostics.
+        if kind == "unavailable":
+            raise RexError(
+                f"Rex {operation} failed with exit status {proc.returncode} "
+                "(cannot reach the Rex server socket; if running inside a terminal sandbox, "
+                "rerun outside the sandbox)",
+                kind,
+            )
         raise RexError(f"Rex {operation} failed with exit status {proc.returncode}", kind)
     if not expect_json:
         return proc.stdout

@@ -58,6 +58,7 @@ while True:
         nonce = re.search(r'"nonce"\s*:\s*"([^"]+)"', text).group(1)
         result = brief.with_name("result.json")
         report("working")
+        os.write(1, f"REX_WORKER_PROGRESS {mode} {task_id}\r\n".encode())
         running_total = 0
         balances = []
         for charge in charges:
@@ -415,21 +416,71 @@ class Scenario:
                                    "manual_workers": manual_window}
 
         wait_env = dict(self.env, REX_SERVER=self.endpoint + ".absent", REX_SESSION=other, REX_BLOCK=other_block)
+        bad_sock = horch(self.args.horch, "run", "fixture", "--brief", str(self.root / "alpha.md"), env=wait_env)
+        bad_sock_json = json.loads(bad_sock.stdout) if bad_sock.stdout.strip() else {}
+        self.check("unreachable Rex socket reports sandbox_or_socket_blocked hint",
+                   bad_sock.returncode == 1
+                   and bad_sock_json.get("error") == "rex_error"
+                   and bad_sock_json.get("hint") == "sandbox_or_socket_blocked"
+                   and "sandbox" in (bad_sock_json.get("message") or "").lower())
         for mode, run in runs.items():
             task = tasks[mode]
             result = self.until_file(Path(task["result_path"]), 15)
             early, = rows(horch(self.args.horch, "wait", run["task_id"], "--max-seconds", "0", env=wait_env))
             self.check(f"{mode} stays running with a result but without turn completion",
                        early["state"] == "running" and not early["closed"] and early["summary"] is None)
+            inspected_live, = rows(horch(self.args.horch, "inspect", run["task_id"], "--lines", "5", env=wait_env))
+            self.check(f"{mode} inspect reports live Rex status and tail by stored binding",
+                       inspected_live["backend"] == "rex"
+                       and inspected_live["terminal_state"] == "live"
+                       and inspected_live["native_status"] == "working"
+                       and isinstance(inspected_live["elapsed_seconds"], int)
+                       and any(f"REX_WORKER_PROGRESS {mode} {run['task_id']}" in line
+                               for line in inspected_live["tail_lines"]))
+            if mode == "alpha":
+                probe_session, _, probe_block = self.session(
+                    "caller-probe",
+                    "/bin/bash", "-c",
+                    'exec -a agy python3 -c "import time; print(\'AGY_TRUNC_PROBE_UNIQUE_LINE_12345\', flush=True); time.sleep(60)"',
+                )
+                time.sleep(0.5)
+                trunc_env = dict(self.env, REX_SERVER=self.endpoint, REX_SESSION=probe_session, REX_BLOCK=probe_block)
+                trunc = subprocess.run(
+                    [sys.executable, str(self.args.horch), "run", "fixture", "--brief", str(self.root / "missing.md"),
+                     "--caller-text", "AGY_TRUNC_PROBE_UNIQUE_LINE_12345_TRUNCATED_TAIL"],
+                    cwd=self.root, env=trunc_env, timeout=30, capture_output=True, text=True,
+                )
+                trunc_json = json.loads(trunc.stdout) if trunc.stdout.strip() else {}
+                ok_caller = subprocess.run(
+                    [sys.executable, str(self.args.horch), "run", "fixture", "--brief", str(self.root / "missing.md"),
+                     "--caller-text", "AGY_TRUNC_PROBE_UNIQUE_LINE_12345"],
+                    cwd=self.root, env=trunc_env, timeout=30, capture_output=True, text=True,
+                )
+                ok_caller_json = json.loads(ok_caller.stdout) if ok_caller.stdout.strip() else {}
+                self.rx("api", "call", "-s", probe_session, "block.close", json.dumps({"block_id": probe_block}))
+                self.check("truncated caller-text reports truncation hint without leaking screen",
+                           trunc.returncode == 1
+                           and trunc_json.get("error") == "caller_context_invalid"
+                           and "truncated" in (trunc_json.get("message") or "").lower()
+                           and "AGY_TRUNC_PROBE_UNIQUE_LINE_12345" not in (trunc_json.get("message") or "")
+                           and ok_caller.returncode == 1
+                           and ok_caller_json.get("error") == "brief_not_found")
             (self.root / f"{mode}.release").touch()
             done, = rows(horch(self.args.horch, "wait", run["task_id"], "--max-seconds", "15", env=wait_env))
             balances = json.loads(Path(done["result_path"]).with_name("balances.json").read_text())
             charges = LEDGERS[mode]
+            expected_file = str(Path(done["result_path"]).with_name("balances.json"))
             self.check(f"{mode} delivers exact output and closes by stored Rex binding", done["state"] == "done"
                        and done["closed"] and done["summary"] == f"Computed {mode} balances."
-                       and done["files"] == ["balances.json"] and result["task_id"] == run["task_id"]
+                       and done["files"] == [expected_file] and result["files"] == ["balances.json"]
+                       and result["task_id"] == run["task_id"]
                        and result["nonce"] == task["nonce"] and result["status"] == "completed"
                        and balances == [sum(charges[:index + 1]) for index in range(len(charges))])
+            inspected_closed, = rows(horch(self.args.horch, "inspect", run["task_id"], env=wait_env))
+            self.check(f"{mode} inspect reports closed after delivery",
+                       inspected_closed["closed"] is True
+                       and inspected_closed["terminal_state"] == "closed"
+                       and inspected_closed["tail_lines"] == [])
             self.evidence["deliveries"][mode] = {"state": done["state"], "closed": done["closed"],
                                                   "balances": balances}
             worker_blocks.remove(task["backend"]["block"])

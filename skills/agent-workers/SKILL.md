@@ -22,22 +22,30 @@ Run `python3 <skill-dir>/scripts/agent-workers.py <command>` (Python 3.11+, JSON
 
 | Command | Purpose |
 |---|---|
-| `run <worker> --brief <file\|-> [--cwd <dir>] [--wait]` | Start a worker (`-` reads stdin). `--wait` prints launch JSON then waits for settlement. |
-| `wait [<id>...] [--all] [--max-seconds <n>] [--recheck]` | Wait for a state change. `--all` waits until all targets settle, returning early on problems, `long_running`, or unclosed `done`. |
+| `run <worker> --brief <file\|-> [--cwd <dir>] [--wait] [--continue-on-long-running]` | Start a worker (`-` reads stdin). `--wait` prints launch JSON then waits for settlement. |
+| `wait [<id>...] [--all] [--max-seconds <n>] [--recheck] [--continue-on-long-running]` | Wait for a state change. `--all` waits until all targets settle, returning early on problems, `long_running` (unless `--continue-on-long-running`), or unclosed `done`. |
+| `inspect <id> [--lines <n>]` | Read-only live status, elapsed time, and trailing visible lines from the task's pinned terminal (never types or mutates state). |
 | `list` / `roles` / `stats` | List tasks (`--active`, `--verbose`), resolve config roles, or view store metrics. |
 | `submit <id>` / `close <id>` / `verify-viewer <id>` | Send a `not_sent` brief once, close terminal and viewer, or re-verify a live core viewer. |
 | `detect` / `check [<worker>...]` | Show backend and harnesses, or run a live delivery check (300s cap). |
 
+Quick dispatch example (inside Rex or Herdr):
+
+```bash
+python3 <skill-dir>/scripts/agent-workers.py run <worker> --brief <file> --cwd <dir> \
+  --caller-text '<16+ unique visible chars>' --wait
+```
+
 - **Profiles:** Pass the same `--profile <name>` (`workers.<name>.toml`) or `--config <path>` across the workflow. If the file is missing outside a sandbox, fail and never fall back to `workers.toml`.
-- **Sandboxed controllers:** `agent-workers` reads `~/.config/herdr-orchestrator/`, writes `~/.local/state/herdr-orchestrator/`, and uses local Rex or Herdr sockets. In `agy` or Codex, rerun outside the sandbox (such as `BypassSandbox: true`) on `config_invalid`, permission, or socket errors before treating setup as missing.
-- **Caller context:** Inside Rex or Herdr, pass `--caller-text '<16+ unique visible chars>'` from persistent screen text such as the status line. Add `--caller-block` or `--caller-pane` if ambiguous, and never guess from focus ([setup.md#caller-context](references/setup.md#caller-context)).
+- **Sandboxed controllers:** `agent-workers` reads `~/.config/herdr-orchestrator/`, writes `~/.local/state/herdr-orchestrator/`, and uses local Rex or Herdr sockets. In `agy` or Codex, rerun outside the sandbox (such as `BypassSandbox: true`) on `config_invalid`, `rex_error`, `core_error`, `herdr_error`, `hint: "sandbox_or_socket_blocked"`, permission, or socket errors before treating setup or Rex/Herdr as broken.
+- **Caller context:** Inside Rex or Herdr, pass `--caller-text '<16+ unique visible chars>'` from an untruncated visible snippet (such as the left side of the status line or a unique phrase in the current turn; avoid the right edge of a narrow status bar). Add `--caller-block` or `--caller-pane` if ambiguous, and never guess from focus ([setup.md#caller-context](references/setup.md#caller-context)).
 
 ## Delegate and verify
 
 1. **Select and isolate:** Match a role with `roles`, or choose by worker `description`. Give each concurrent writer its own worktree at `<main checkout>/.worktrees/<name>` (`--cwd`). Read-only workers may share a checkout if they write only to declared reports and `result.json` in the task directory.
-2. **Brief:** State the goal, criteria, PR-first limit, absolute paths, file ownership, verification commands, outputs, and commit rule. `agent-workers` appends worker rules and the `result.json` schema.
+2. **Brief:** State the goal, criteria, PR-first limit (for repository changes), absolute paths, file ownership, verification commands, outputs, and commit rule. `agent-workers` appends worker rules and the `result.json` schema.
 3. **Dispatch:** Start up to `max_active_workers` in parallel before waiting. Handle any non-running `run` state per [Problems](#problems) right away. In reactive-wakeup harnesses (Claude Code, `agy`, Codex), prefer one background `run --wait` per worker, or follow `run` immediately with a background `wait --all`. Report any core `warning` and `viewer_verification_error` right away while keeping the task monitored.
-4. **Wait and read:** Use unbounded waits in background-capable shells. In blocking-only shells such as Pi, use `--max-seconds 300` (with shell timeout over 300s) and never `--max-seconds 1`. Report `long_running` once and keep waiting. On `done`, check `result_status` and read `result_path` and `files` (relative to the result directory). Run follow-ups as fresh tasks.
+4. **Wait and read:** Use unbounded waits in background-capable shells (add `--continue-on-long-running` if your harness already wakes you via timeout notifications and you want `long_running` flushed as NDJSON without exiting). In blocking-only shells such as Pi, use `--max-seconds 300` (with shell timeout over 300s) and never `--max-seconds 1`. Use `inspect <id>` to check live progress without touching the terminal. Report `long_running` once and keep waiting. On `done`, check `result_status` and read `result_path` and `files` (normalized absolute paths). Run follow-ups as fresh tasks.
 5. **Verify and close:** Verify diffs, behavior, and verdicts. If `closed` is `false`, read `message` and retry `close <id>`.
 6. **Clean up worktrees:** After a writer closes and its commits are integrated, remove only worktrees you created this session: check that `git status --porcelain --ignored` is empty, run `git worktree remove` (no `--force`), then `git branch -d` (keep the branch if Git refuses). Keep and report any worktree with leftover files, active use, or unknown ownership ([commands](references/setup.md#worktree-placement)).
 

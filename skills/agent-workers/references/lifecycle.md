@@ -35,7 +35,7 @@ Normal delivery requires a finished native turn and a valid six-key `result.json
 
 Normal `wait` returns stored problem states immediately without re-polling. When `wait --all` stops early on one problem task, re-arm `wait` for the remaining running IDs so the stored problem does not keep interrupting them.
 
-Run `agent-workers list --verbose` to read the stored backend binding (`backend.kind` is `rex`, `core`, or `legacy`), then inspect the recorded terminal:
+Run `agent-workers inspect <task-id>` first for a read-only view of live terminal state, elapsed time, and trailing visible lines across Rex, core, or legacy backends. For raw backend inspection, run `agent-workers list --verbose` to read the stored backend binding (`backend.kind` is `rex`, `core`, or `legacy`), then inspect the recorded terminal:
 
 - **Rex:** `<executable> --autostart=false -S <endpoint> block call -s <session> -b <block> program_status` and `... capture -s <session> -b <block> --trim`.
 - **Core:** With the recorded `executable`, `HC_SESSION`, and `HC_SOCKET`, run `get <terminal_id>` or `read <terminal_id> --lines 0`.
