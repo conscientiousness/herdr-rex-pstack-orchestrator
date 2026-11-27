@@ -18,6 +18,7 @@ class Harness:
     native_no_daemon: bool = False
     rex_paste_delay: float = 0
     rex_idle_settle_seconds: float = 0
+    startup_blocked_grace_seconds: float = 0
 
 
 HARNESSES = {
@@ -31,7 +32,9 @@ HARNESSES = {
                       controller_session_env="CLAUDE_CODE_SESSION_ID", worker_unset_env=("CLAUDECODE",)),
     "agy": Harness("Antigravity", ("agy", "antigravity"),
                    controller_session_env="ANTIGRAVITY_CONVERSATION_ID",
-                   legacy_session_aliases=("antigravity-cli",), screen_blocker="esc to dismiss"),
+                   legacy_session_aliases=("antigravity-cli",), screen_blocker="esc to dismiss",
+                   rex_paste_delay=0.3, rex_idle_settle_seconds=0.75,
+                   startup_blocked_grace_seconds=3.0),
 }
 
 CONTROLLER_SESSION_ENV = {key: spec.controller_session_env for key, spec in HARNESSES.items()

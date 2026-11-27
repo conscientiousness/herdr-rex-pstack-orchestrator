@@ -1333,12 +1333,28 @@ def cmd_verify_viewer(args):
     emit({"task_id": args.task_id, **viewer_fields(task)})
 
 
+def _has_framed_input_prompt(screen):
+    """Return True when the visible screen shows a framed `>` input prompt box."""
+    lines = [line.strip() for line in screen.splitlines()]
+    is_rule = lambda line: len(line) >= 10 and set(line) == {"─"}
+    for idx, line in enumerate(lines):
+        if not is_rule(line) or idx + 1 >= len(lines):
+            continue
+        prompt = lines[idx + 1]
+        if prompt != ">" and not prompt.startswith("> "):
+            continue
+        if any(is_rule(lines[end]) for end in range(idx + 2, min(len(lines), idx + 6))):
+            return True
+    return False
+
+
 def prepare_send(directory, task, read_screen, blocked_error):
     harness = task.get("harness")
     spec = HARNESSES.get(harness) if isinstance(harness, str) else None
     if spec and spec.screen_blocker:
-        screen = " ".join(read_screen().split()).lower()
-        if spec.screen_blocker in screen:
+        raw_screen = read_screen()
+        screen = " ".join(raw_screen.split()).lower()
+        if spec.screen_blocker in screen and not _has_framed_input_prompt(raw_screen):
             raise blocked_error(f"{harness} startup banner or modal overlay detected ({spec.screen_blocker!r})")
     return f"New task {task['task_id']}. Read {directory / 'brief.md'} in full and follow it exactly."
 
@@ -1346,7 +1362,10 @@ def prepare_send(directory, task, read_screen, blocked_error):
 def submit_core_task(directory, task, state):
     binding = task["backend"]
     try:
-        terminal = core.ready(binding, START_TIMEOUT_MS / 1000)
+        spec = HARNESSES.get(task.get("harness"))
+        grace = spec.startup_blocked_grace_seconds if spec else 0
+        terminal = (core.ready(binding, START_TIMEOUT_MS / 1000, blocked_grace=grace)
+                    if grace > 0 else core.ready(binding, START_TIMEOUT_MS / 1000))
         baseline = terminal.get("turn")
         if isinstance(baseline, bool) or not isinstance(baseline, int) or baseline < 0:
             raise core.CoreError("native turn baseline missing; no task was sent")
@@ -1442,14 +1461,28 @@ def rex_status_advanced(updated_at, baseline):
 
 def rex_ready(binding, deadline=None):
     deadline = time.monotonic() + START_TIMEOUT_MS / 1000 if deadline is None else deadline
-    settle = HARNESSES[binding["harness"]].rex_idle_settle_seconds
+    spec = HARNESSES[binding["harness"]]
+    settle = spec.rex_idle_settle_seconds
+    blocked_grace = spec.startup_blocked_grace_seconds
     stable_terminal = None
     stable_since = None
+    blocked_since = None
     while True:
         terminal = rex.get(binding)
-        if not terminal or terminal["state"] != "live" or terminal["status"] in ("blocked", "error"):
+        if not terminal or terminal["state"] != "live" or terminal["status"] == "error":
             raise rex.RexError("Rex worker exited or reported a startup problem before native idle readiness")
-        if terminal["status"] == "idle" and rex_status_time(terminal["updated_at"]) is not None:
+        if terminal["status"] == "blocked":
+            stable_terminal = None
+            stable_since = None
+            now = time.monotonic()
+            if blocked_grace <= 0:
+                raise rex.RexError("Rex worker exited or reported a startup problem before native idle readiness")
+            if blocked_since is None:
+                blocked_since = now
+            elif now - blocked_since >= blocked_grace:
+                raise rex.RexError("Rex worker exited or reported a startup problem before native idle readiness")
+        elif terminal["status"] == "idle" and rex_status_time(terminal["updated_at"]) is not None:
+            blocked_since = None
             if settle <= 0:
                 return terminal
             now = time.monotonic()
@@ -1459,6 +1492,7 @@ def rex_ready(binding, deadline=None):
             elif now - stable_since >= settle:
                 return terminal
         else:
+            blocked_since = None
             stable_terminal = None
             stable_since = None
         now = time.monotonic()
