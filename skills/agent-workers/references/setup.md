@@ -59,7 +59,7 @@ When a harness blocks on startup, `agent-workers` leaves the brief unsent (`stat
   ```
   Start `claude` in that directory, accept trust, and run `/exit`.
 - **Pi:** "Trust project folder?" whenever an untrusted directory or ancestor contains project resources (even an empty `.agents/skills`). Trust is path-based and ignores git worktree links, so create worktrees inside the trusted main checkout. Only the user may add `--approve` or `--no-approve` to `args`.
-- **Antigravity CLI (`agy`):** Project trust prompts report native `blocked`. Modal banners showing `esc to dismiss` can intercept input while `agy` reports `idle`, so `agent-workers` detects them and keeps the brief unsent. Workers should always write outputs inside the task directory or workspace, never inside `agy`'s artifact directory.
+- **Antigravity CLI (`agy`):** Project trust prompts report persistent native `blocked` (brief startup sign-in `blocked` states are tolerated before failing). Modal banners showing `esc to dismiss` without a visible framed `>` input prompt can intercept input while `agy` reports `idle`, so `agent-workers` keeps the brief unsent; non-modal inline `esc to dismiss` notices above the active `>` prompt do not block submission. Workers should always write outputs inside the task directory or workspace, never inside `agy`'s artifact directory.
 - **First run on a new machine:** Start each harness once by hand in a trusted checkout and let startup finish (Pi downloads `fd` and `ripgrep` on first launch).
 
 After the user clears a startup dialog on Rex or core, use `agent-workers wait <id> --recheck` to confirm idle, then `agent-workers submit <id>`. On legacy Herdr, close the task and start a fresh one.

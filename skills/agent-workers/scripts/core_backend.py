@@ -213,16 +213,28 @@ def wait_changes(observations, seconds):
         raise CoreError(f"core event connection failed: {exc}") from exc
 
 
-def ready(binding, seconds):
+def ready(binding, seconds, *, blocked_grace=0):
     deadline = time.monotonic() + seconds
+    blocked_since = None
     while True:
         terminal = get(binding)
         word = status(terminal) if terminal else None
         if terminal and terminal["state"] == "live" and terminal.get("reported") and word == "idle":
             return terminal
-        if terminal is None or terminal["state"] != "live" or word in ("blocked", "error"):
+        if terminal is None or terminal["state"] != "live" or word == "error":
             raise CoreError("worker did not reach native idle readiness; no task was sent")
-        remaining = deadline - time.monotonic()
+        now = time.monotonic()
+        if word == "blocked":
+            if blocked_grace <= 0:
+                raise CoreError("worker did not reach native idle readiness; no task was sent")
+            if blocked_since is None:
+                blocked_since = now
+            elif now - blocked_since >= blocked_grace:
+                raise CoreError("worker did not reach native idle readiness; no task was sent")
+            remaining = min(deadline - now, blocked_grace - (now - blocked_since))
+        else:
+            blocked_since = None
+            remaining = deadline - now
         if remaining <= 0:
             raise CoreError("native idle readiness missing; inspect startup/trust dialog; no task was sent")
         wait_changes([(binding, terminal)], remaining)

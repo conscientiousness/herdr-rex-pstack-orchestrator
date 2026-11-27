@@ -18,26 +18,58 @@ HORCH = Path(__file__).resolve().parents[1] / "skills/agent-workers/scripts/agen
 REX_BACKEND = Path(__file__).resolve().parents[1] / "skills/agent-workers/scripts/rex_backend.py"
 
 AGY_FIXTURE = r'''#!/usr/bin/env python3
-import json, os, pathlib, re, select, sys, tty
+import json, os, pathlib, re, select, sys, time, tty
 
 if "--version" in sys.argv:
     print("agy startup-guard-fixture 1")
     sys.exit(0)
 
-def report(state):
-    os.write(1, ("\x1b]7501;state=" + state + ":app=agy\x07").encode())
+def report(state, extra=""):
+    os.write(1, ("\x1b]7501;state=" + state + extra + ":app=agy\x07").encode())
 
 tty.setraw(0)
 banner_gate = None
+task_dir = None
 for i, arg in enumerate(sys.argv):
     if arg == "--banner-gate" and i + 1 < len(sys.argv):
         banner_gate = pathlib.Path(sys.argv[i + 1])
+    elif arg == "--add-dir" and i + 1 < len(sys.argv):
+        task_dir = pathlib.Path(sys.argv[i + 1])
+
+inline_notice = "--inline-notice" in sys.argv
+transient_auth = "--transient-auth" in sys.argv
+persistent_blocked = "--persistent-blocked" in sys.argv
+
+if persistent_blocked:
+    os.write(1, b"Trust this workspace?\r\n")
+    report("blocked", ":kind=permission")
+    while True:
+        if select.select([0], [], [], 0.05)[0]:
+            chunk = os.read(0, 4096)
+            if not chunk:
+                break
+            if task_dir is not None:
+                (task_dir / "received_while_blocked").write_bytes(chunk)
+    sys.exit(0)
+
+if transient_auth:
+    os.write(1, b"Signing in...\r\n")
+    report("blocked", ":kind=auth")
+    time.sleep(0.3)
 
 if banner_gate is not None:
     os.write(1, b"Introducing Gemini 4 Neon\r\nesc to dismiss\r\n")
+elif inline_notice:
+    os.write(1, (
+        "Gemini 4 Carbon now available! (esc to dismiss)\r\n"
+        + ("─" * 60) + "\r\n"
+        + "> Auto mode: edits & safe commands auto-approved\r\n"
+        + ("─" * 60) + "\r\n"
+    ).encode("utf-8"))
 else:
     os.write(1, b"AGY_CLEAN_IDLE_READY\r\n")
 report("idle")
+idle_at = time.monotonic()
 
 buf = b""
 handled = False
@@ -52,6 +84,8 @@ while True:
     chunk = os.read(0, 4096)
     if not chunk:
         break
+    if inline_notice and task_dir is not None and (time.monotonic() - idle_at) < 0.3:
+        (task_dir / "received_before_settled").write_bytes(chunk)
     if not dismissed:
         (banner_gate.parent / "received_while_banner_open").write_bytes(chunk)
     lines = re.split(rb"[\r\n]", buf + chunk)
@@ -77,7 +111,8 @@ while True:
             "question": None,
         }))
         tmp.replace(result)
-        report("idle")
+        time.sleep(0.1)
+        report("done")
 '''
 
 PI_FIXTURE = r'''#!/usr/bin/env python3
@@ -207,6 +242,14 @@ def main():
         '[workers.agy-clean]\n'
         'harness = "agy"\n'
         'model = "gemini-4-neon"\n\n'
+        '[workers.agy-inline]\n'
+        'harness = "agy"\n'
+        'model = "gemini-4-neon"\n'
+        'args = ["--transient-auth", "--inline-notice"]\n\n'
+        '[workers.agy-blocked]\n'
+        'harness = "agy"\n'
+        'model = "gemini-4-neon"\n'
+        'args = ["--persistent-blocked"]\n\n'
         '[workers.pi-esc]\n'
         'harness = "pi"\n'
         'model = "pi-model"\n',
@@ -318,6 +361,36 @@ def main():
               and pi_lines[1]["state"] == "done"
               and pi_lines[1]["closed"] is True)
 
+        # 1E. Non-modal agy inline notice above framed '>' prompt + transient auth blocked delivers cleanly
+        p_inline = run_cli(
+            args.horch,
+            ["run", "agy-inline", "--brief", str(brief), "--cwd", str(work_dir), "--wait"],
+            env=core_env,
+        )
+        inline_lines = [json.loads(line) for line in p_inline.stdout.splitlines() if line.strip()]
+        check("agy_inline_notice_with_transient_auth_delivers",
+              p_inline.returncode == 0
+              and len(inline_lines) == 2
+              and inline_lines[0]["submission"] == "sent"
+              and inline_lines[1]["state"] == "done"
+              and inline_lines[1]["closed"] is True)
+
+        # 1F. Persistent startup blocked still fails unsent after grace window
+        p_pblock = run_cli(
+            args.horch,
+            ["run", "agy-blocked", "--brief", str(brief), "--cwd", str(work_dir)],
+            env=core_env,
+        )
+        pblock = json.loads(p_pblock.stdout)
+        p_pblock_close = run_cli(args.horch, ["close", pblock["task_id"]], env=core_env)
+        check("agy_persistent_blocked_fails_unsent",
+              p_pblock.returncode == 0
+              and pblock["state"] == "start_failed"
+              and pblock["submission"] == "not_sent"
+              and not (Path(pblock["task_dir"]) / "received_while_blocked").exists()
+              and p_pblock_close.returncode == 0
+              and json.loads(p_pblock_close.stdout).get("closed") is True)
+
         # Part 2: Rex caller proof and agy startup banner guard on an isolated server.
         with tempfile.TemporaryDirectory(prefix="rx-guards-", dir="/tmp") as rx_tmp:
             rx_root = Path(rx_tmp)
@@ -342,7 +415,9 @@ def main():
             rex_agy.chmod(0o755)
             (rx_cfg / "workers.toml").write_text(
                 'max_active_workers = 2\n[workers.agy-banner]\nharness = "agy"\nmodel = "fixture"\n'
-                f'args = ["--banner-gate", {json.dumps(str(rex_gate))}]\n', encoding="utf-8",
+                f'args = ["--banner-gate", {json.dumps(str(rex_gate))}]\n'
+                '[workers.agy-inline]\nharness = "agy"\nmodel = "fixture"\n'
+                'args = ["--transient-auth", "--inline-notice"]\n', encoding="utf-8",
             )
 
             rx_env = {
@@ -429,6 +504,21 @@ def main():
                       and "esc to dismiss" in (rex_banner.get("message") or "").lower()
                       and not (rx_work / "received_while_banner_open").exists(),
                       {key: rex_banner.get(key) for key in ("state", "submission", "message")})
+
+                p_rex_inline = run_cli(
+                    args.horch,
+                    ["run", "agy-inline", "--brief", str(brief), "--caller-text", long_token, "--wait"],
+                    env=call_env, cwd=rx_work,
+                )
+                rex_inline_lines = [json.loads(line) for line in p_rex_inline.stdout.splitlines() if line.strip()]
+                check("rex_agy_inline_notice_settles_and_delivers",
+                      p_rex_inline.returncode == 0
+                      and len(rex_inline_lines) == 2
+                      and rex_inline_lines[0].get("submission") == "sent"
+                      and rex_inline_lines[1].get("state") == "done"
+                      and rex_inline_lines[1].get("closed") is True
+                      and not (Path(rex_inline_lines[0]["task_dir"]) / "received_before_settled").exists(),
+                      rex_inline_lines)
             finally:
                 (rx_root / "ctrl.release").touch()
                 if server.poll() is None:
